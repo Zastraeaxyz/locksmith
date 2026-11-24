@@ -573,6 +573,9 @@ func truncate(text string, limit int) string {
 	return string(runes[:limit-1]) + "…"
 }
 
+// externalKeyholderID returns the keyholder's Discord user ID. ChastiSafe
+// identifies an account by the Discord snowflake linked in ChastiSafe, so this
+// is directly comparable to the member who pressed a button.
 func externalKeyholderID(lock *cs.LoadedLock) string {
 	if lock == nil || lock.IsSelfLock() {
 		return ""

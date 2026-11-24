@@ -17,7 +17,8 @@ The member a lock is on.
 _Avoid_: Owner, user
 
 **Keyholder**:
-The person who controls a lock. May be the lockee itself or someone else.
+The person who controls a lock, identified by the Discord account linked to
+their ChastiSafe account. May be the lockee itself or someone else.
 _Avoid_: Owner, master
 
 **External keyholder**:
