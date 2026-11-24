@@ -106,9 +106,9 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	if userID == "" {
 		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
 	}
-	// Acknowledge privately so a blocked draw never shows up in the channel. The
-	// board is posted publicly once a drawable lock is found.
-	if err := bot.DeferEphemeral(s, i); err != nil {
+	// The draw board is the interaction response, so acknowledge publicly. A
+	// blocked draw deletes this placeholder and answers privately instead.
+	if err := bot.Defer(s, i, false); err != nil {
 		return err
 	}
 
@@ -149,31 +149,17 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	session.setLock(lock)
 
 	f.putSession(session)
-	return f.postDrawBoard(s, i, session, lock)
+	return bot.EditMessage(s, i, "",
+		[]*discordgo.MessageEmbed{session.embed(lock, "", false)}, drawButtons(session.id))
 }
 
-// replyDrawPrivate replaces the private placeholder, so only the caller sees
-// why drawing is unavailable.
+// replyDrawPrivate removes the public placeholder and answers privately, since
+// Discord cannot change the visibility of a response that was already posted.
 func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	return bot.Edit(s, i, content)
-}
-
-// postDrawBoard posts the public board as an interaction followup and removes
-// the private placeholder. A followup goes through the interaction webhook, so
-// it also works where the bot is not a member, unlike a channel message send.
-func (f *Feature) postDrawBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock) error {
-	_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Embeds:     []*discordgo.MessageEmbed{session.embed(lock, "", false)},
-		Components: drawButtons(session.id),
-	})
-	if err != nil {
-		f.log.Warn("posting draw board", "err", err)
-		return bot.Edit(s, i, "I could not post the draw board here. Try again in a moment.")
-	}
 	if err := bot.DeleteResponse(s, i); err != nil {
 		f.log.Warn("deleting draw placeholder", "err", err)
 	}
-	return nil
+	return bot.ReplyEphemeralFollowup(s, i, content)
 }
 
 // drawTarget returns the newest card lock even when it cannot be drawn, so the
