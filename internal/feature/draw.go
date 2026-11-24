@@ -158,14 +158,17 @@ func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.Interactio
 	return bot.Edit(s, i, content)
 }
 
-// postDrawBoard replaces the private placeholder with the public draw board.
+// postDrawBoard posts the public board as an interaction followup and removes
+// the private placeholder. A followup goes through the interaction webhook, so
+// it also works where the bot is not a member, unlike a channel message send.
 func (f *Feature) postDrawBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock) error {
-	_, err := s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
+	_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
 		Embeds:     []*discordgo.MessageEmbed{session.embed(lock, "", false)},
 		Components: drawButtons(session.id),
 	})
 	if err != nil {
-		return bot.Edit(s, i, "I could not post the draw board here. Check my permissions in this channel.")
+		f.log.Warn("posting draw board", "err", err)
+		return bot.Edit(s, i, "I could not post the draw board here. Try again in a moment.")
 	}
 	if err := bot.DeleteResponse(s, i); err != nil {
 		f.log.Warn("deleting draw placeholder", "err", err)
