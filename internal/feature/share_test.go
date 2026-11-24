@@ -111,7 +111,8 @@ func TestShareEmbed(t *testing.T) {
 }
 
 func TestShareButtons(t *testing.T) {
-	components := shareButtons("tpl-1", "https://chastisafe.com/api-v1")
+	card := &cs.Template{ID: "tpl-1", LockType: "CARDLOCK"}
+	components := shareButtons(card, "https://chastisafe.com/api-v1")
 	if len(components) != 1 {
 		t.Fatalf("components = %d, want 1 row", len(components))
 	}
@@ -119,8 +120,8 @@ func TestShareButtons(t *testing.T) {
 	if !ok {
 		t.Fatalf("component type = %T", components[0])
 	}
-	if len(row.Components) != 2 {
-		t.Fatalf("buttons = %d, want 2", len(row.Components))
+	if len(row.Components) != 3 {
+		t.Fatalf("buttons = %d, want 3", len(row.Components))
 	}
 
 	load, ok := row.Components[0].(discordgo.Button)
@@ -131,12 +132,42 @@ func TestShareButtons(t *testing.T) {
 		t.Fatalf("load button = %+v", load)
 	}
 
-	open, ok := row.Components[1].(discordgo.Button)
+	simulation, ok := row.Components[1].(discordgo.Button)
 	if !ok {
 		t.Fatalf("second button type = %T", row.Components[1])
 	}
+	if simulation.CustomID != "simulation:tpl-1" || simulation.Style != discordgo.SecondaryButton {
+		t.Fatalf("simulation button = %+v", simulation)
+	}
+
+	open, ok := row.Components[2].(discordgo.Button)
+	if !ok {
+		t.Fatalf("third button type = %T", row.Components[2])
+	}
 	if open.Style != discordgo.LinkButton || open.URL != "https://chastisafe.com/#l/tpl-1" {
 		t.Fatalf("open button = %+v", open)
+	}
+}
+
+func TestShareButtonsSkipSimulationForTimerLocks(t *testing.T) {
+	timer := &cs.Template{ID: "tpl-2", LockType: "TIMEDLOCK"}
+	components := shareButtons(timer, "https://chastisafe.com/api-v1")
+	if len(components) != 1 {
+		t.Fatalf("components = %d, want 1 row", len(components))
+	}
+	row, ok := components[0].(discordgo.ActionsRow)
+	if !ok {
+		t.Fatalf("component type = %T", components[0])
+	}
+	if len(row.Components) != 2 {
+		t.Fatalf("buttons = %d, want 2", len(row.Components))
+	}
+	if _, ok := row.Components[1].(discordgo.Button); !ok {
+		t.Fatalf("second button type = %T", row.Components[1])
+	}
+
+	if got := shareButtons(nil, "https://chastisafe.com/api-v1"); got != nil {
+		t.Fatalf("nil template = %v, want no components", got)
 	}
 }
 

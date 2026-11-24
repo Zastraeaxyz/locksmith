@@ -57,7 +57,7 @@ func (f *Feature) handleLockShare(ctx context.Context, s *discordgo.Session, i *
 	f.log.Info("lock shared", "user_id", userID, "template_id", template.ID.String())
 	return bot.EditMessageAllowed(s, i, "",
 		[]*discordgo.MessageEmbed{shareEmbed(template, f.baseURL, interactionName(i))},
-		shareButtons(template.ID, f.baseURL),
+		shareButtons(template, f.baseURL),
 		noMentions(),
 	)
 }
@@ -235,20 +235,35 @@ func greensText(count int) string {
 	return strconv.Itoa(count)
 }
 
-func shareButtons(templateID cs.ID, baseURL string) []discordgo.MessageComponent {
+// shareButtons offers loading, an optional simulation for card templates, and
+// the website link.
+func shareButtons(template *cs.Template, baseURL string) []discordgo.MessageComponent {
+	if template == nil {
+		return nil
+	}
+
+	buttons := []discordgo.MessageComponent{
+		discordgo.Button{
+			CustomID: shareNamespace + ":load:" + template.ID.String(),
+			Label:    "Load with Locksmith",
+			Style:    discordgo.PrimaryButton,
+		},
+	}
+	if template.IsCardLock() {
+		buttons = append(buttons, discordgo.Button{
+			CustomID: simulationNamespace + ":" + template.ID.String(),
+			Label:    "Simulation",
+			Style:    discordgo.SecondaryButton,
+		})
+	}
+	buttons = append(buttons, discordgo.Button{
+		Label: "Open in ChastiSafe",
+		Style: discordgo.LinkButton,
+		URL:   chastisafeShareURL(baseURL, template.ID),
+	})
+
 	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-			discordgo.Button{
-				CustomID: shareNamespace + ":load:" + templateID.String(),
-				Label:    "Load with Locksmith",
-				Style:    discordgo.PrimaryButton,
-			},
-			discordgo.Button{
-				Label: "Open in ChastiSafe",
-				Style: discordgo.LinkButton,
-				URL:   chastisafeShareURL(baseURL, templateID),
-			},
-		}},
+		discordgo.ActionsRow{Components: buttons},
 	}
 }
 

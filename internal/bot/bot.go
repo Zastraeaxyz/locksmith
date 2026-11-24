@@ -507,6 +507,33 @@ func EditEphemeralChunks(s *discordgo.Session, i *discordgo.InteractionCreate, t
 	return EditChunks(s, i, text, true)
 }
 
+// EditMessageChunks replaces a deferred reply like EditChunks and keeps the
+// component row on the first message, so a button survives a long reply.
+func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, components []discordgo.MessageComponent, ephemeral bool) error {
+	chunks := chunk(text, 1900)
+	if len(chunks) == 0 {
+		return EditMessage(s, i, "", nil, components)
+	}
+
+	if components == nil {
+		components = []discordgo.MessageComponent{}
+	}
+	first := &discordgo.WebhookEdit{Content: &chunks[0], Components: &components}
+	if _, err := s.InteractionResponseEdit(i.Interaction, first); err != nil {
+		return err
+	}
+	for _, part := range chunks[1:] {
+		params := &discordgo.WebhookParams{Content: part}
+		if ephemeral {
+			params.Flags = discordgo.MessageFlagsEphemeral
+		}
+		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func chunk(text string, size int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {

@@ -164,7 +164,17 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 		"template_id", templateID.String(),
 		"lock_id", locks[0].ID.String(),
 	)
-	return sendEphemeral(s, i, loadResultText(&locks[0], cred.ChastiSafeID, code, watched, f.now()))
+	return sendLoadResult(s, i, loadResultText(&locks[0], cred.ChastiSafeID, code, watched, f.now()), templateID, &locks[0])
+}
+
+// sendLoadResult edits the deferred private reply and offers a Simulation
+// button for a card lock, so the lockee can see what the lock expects.
+func sendLoadResult(s *discordgo.Session, i *discordgo.InteractionCreate, text string, templateID cs.ID, lock *cs.LoadedLock) error {
+	var components []discordgo.MessageComponent
+	if lock != nil && lock.IsCardLock() {
+		components = simulationButtons(templateID)
+	}
+	return bot.EditMessageChunks(s, i, text, components, true)
 }
 
 // parseTemplateRef accepts a ChastiSafe share link, a template link, or a bare

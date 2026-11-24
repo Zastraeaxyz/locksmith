@@ -81,6 +81,12 @@ A lock state that blocks drawing and changes. It is set by the keyholder or by a
 freeze card.
 _Avoid_: Paused, locked out
 
+**Simulation**:
+ChastiSafe's statistical preview of a card template: average and range for
+duration and cards drawn, based on repeated runs. Locksmith shows it privately
+to the member who presses the Simulation button.
+_Avoid_: Estimate, prediction, forecast
+
 ### Secrets
 
 **Developer code**:

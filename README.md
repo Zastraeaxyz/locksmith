@@ -41,7 +41,7 @@ user-install button, and a link to this repository.
 | `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; generates the device code from your ChastiSafe code settings and asks privately for the keyholder passcode |
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
-| `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith and Open in ChastiSafe buttons; `ref` suggests your own templates |
+| `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
 | `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first |
@@ -85,6 +85,12 @@ lockee can set the device and then forget it.
 
 Templates that use a keyholder passcode are supported: enter the passcode in the
 form. The share post marks it as required so the lockee knows to ask for it.
+
+Card templates also get a **Simulation** button, on the share post and on the
+private reply after a load. It asks ChastiSafe for the same estimate the website
+shows: average duration and cards drawn, the ranges, the draw interval, and how
+many runs the estimate used. The reply is private to whoever presses the button,
+so a public share post stays clean.
 
 ## Notifications
 
