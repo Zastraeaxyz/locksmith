@@ -58,6 +58,31 @@ func lockCommand() *discordgo.ApplicationCommand {
 					},
 				},
 			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "log",
+				Description: "Show the draw log for a lock",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "full",
+						Description: "Show the whole log instead of draws from the last 5 minutes",
+						Required:    false,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "ref",
+						Description: "Lock ID or name, including previous locks",
+						Required:    false,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "public",
+						Description: "Post the reply publicly instead of privately",
+						Required:    false,
+					},
+				},
+			},
 		},
 	}
 }
@@ -179,6 +204,8 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 			enabled = sub.Options[0].BoolValue()
 		}
 		return f.handleLockNotify(ctx, s, i, enabled)
+	case "log":
+		return f.handleLockLog(ctx, s, i, sub.Options)
 	default:
 		return bot.ReplyEphemeral(s, i, "Unknown `/lock` subcommand.")
 	}
@@ -198,7 +225,20 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 	if err != nil {
 		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
 	}
-	return sendEphemeral(s, i, cs.PersonalStatusText(locks, cred.ChastiSafeID))
+
+	views := ownLockViews(locks, cred.ChastiSafeID)
+	if len(views) == 0 {
+		return sendEphemeral(s, i, "You have no active ChastiSafe locks.")
+	}
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "**Your active lock%s** (%d)\n", plural(len(views)), len(views))
+	for idx := range views {
+		b.WriteString("\n")
+		b.WriteString(cs.LockDetailText(&views[idx]))
+		b.WriteString("\n")
+	}
+	return sendEphemeral(s, i, b.String())
 }
 
 func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
@@ -219,6 +259,15 @@ func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *d
 	lock := activeCardLock(locks, cred.ChastiSafeID)
 	if lock == nil {
 		return sendEphemeral(s, i, "You have no active card lock to draw from.")
+	}
+	if lock.DrawsAvailable() == 0 {
+		if wait := lock.NextPickIn(); wait > 0 {
+			return sendEphemeral(s, i, fmt.Sprintf(
+				"No draws available yet for **%s**. Next draw in %s.",
+				lockName(lock), cs.FormatShortDuration(wait),
+			))
+		}
+		return sendEphemeral(s, i, fmt.Sprintf("No draws available right now for **%s**.", lockName(lock)))
 	}
 
 	result, err := client.Pick(ctx, lock.ID)
@@ -257,29 +306,37 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		return sendEphemeral(s, i, "You have no active card lock to watch, so notifications are off.")
 	}
 
-	next := f.now().Add(5 * time.Second)
-	if wait := lock.NextPickIn(); wait > 0 {
-		next = f.now().Add(wait + 2*time.Second)
+	next := f.now().Add(10 * time.Second)
+	if lock.DrawsAvailable() == 0 {
+		if wait := lock.NextPickIn(); wait > 0 {
+			next = f.now().Add(wait + 2*time.Second)
+		} else {
+			next = f.now().Add(time.Minute)
+		}
 	}
 	if err := f.store.Subscribe(ctx, &store.Notification{
 		DiscordUserID: userID,
 		LockID:        lock.ID.String(),
 		LastDraws:     string(lock.Draws),
+		LastPicks:     0, // notify on the first check when draws are already ready
 		NextCheckAt:   next,
 	}); err != nil {
 		f.log.Warn("subscribing", "user_id", userID, "err", err)
 		return sendEphemeral(s, i, "I could not save your subscription. Try again in a moment.")
 	}
 
-	name := strings.TrimSpace(lock.LockName)
-	if name == "" {
-		name = "your card lock"
-	}
+	name := lockName(lock)
 	f.log.Info("notify subscribed", "user_id", userID, "lock_id", lock.ID.String())
+	if draws := lock.DrawsAvailable(); draws > 0 {
+		return sendEphemeral(s, i, fmt.Sprintf(
+			"Draw notifications are on for **%s**. You have %s available now.",
+			name, drawsPhrase(draws),
+		))
+	}
 	if wait := lock.NextPickIn(); wait > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
 			"Draw notifications are on for **%s**. Next draw opens in %s.",
-			name, cs.FormatDuration(wait),
+			name, cs.FormatShortDuration(wait),
 		))
 	}
 	return sendEphemeral(s, i, fmt.Sprintf(
@@ -288,8 +345,10 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	))
 }
 
-// activeCardLock returns the caller's first active, unfrozen card lock.
+// activeCardLock returns the caller's newest active, unfrozen card lock,
+// preferring one that has a draw ready.
 func activeCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
+	var newest, withDraws *cs.LoadedLock
 	for idx := range locks {
 		lock := &locks[idx]
 		if !lock.IsCardLock() || lock.IsFrozen() || lock.IsReady() {
@@ -298,9 +357,19 @@ func activeCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
 		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
 			continue
 		}
-		return lock
+		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
+			newest = lock
+		}
+		if lock.DrawsAvailable() > 0 {
+			if withDraws == nil || lock.LoadTime.Time.After(withDraws.LoadTime.Time) {
+				withDraws = lock
+			}
+		}
 	}
-	return nil
+	if withDraws != nil {
+		return withDraws
+	}
+	return newest
 }
 
 func drawText(lock *cs.LoadedLock, result *cs.PickResult) string {
@@ -328,10 +397,9 @@ func drawText(lock *cs.LoadedLock, result *cs.PickResult) string {
 	if updated != nil {
 		b.WriteString("\n")
 		b.WriteString(cs.LockStateText(updated))
+		fmt.Fprintf(&b, "\n%s available.", drawsPhrase(updated.DrawsAvailable()))
 		if wait := updated.NextPickIn(); wait > 0 {
-			fmt.Fprintf(&b, "\nNext draw in %s.", cs.FormatDuration(wait))
-		} else {
-			b.WriteString("\nAnother draw is ready now.")
+			fmt.Fprintf(&b, " Next draw in %s.", cs.FormatShortDuration(wait))
 		}
 	}
 	if result != nil && result.Done {

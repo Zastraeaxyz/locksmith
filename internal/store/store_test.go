@@ -84,7 +84,7 @@ func TestNotificationDue(t *testing.T) {
 		t.Fatalf("lock id = %q", due[0].LockID)
 	}
 
-	n.NotifiedReady = true
+	n.LastPicks = 3
 	n.NextCheckAt = now.Add(time.Hour)
 	if err := st.Subscribe(ctx, n); err != nil {
 		t.Fatalf("Subscribe update: %v", err)
@@ -101,8 +101,8 @@ func TestNotificationDue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Notification: %v", err)
 	}
-	if got == nil || !got.NotifiedReady {
-		t.Fatalf("NotifiedReady = %+v", got)
+	if got == nil || got.LastPicks != 3 {
+		t.Fatalf("LastPicks = %+v", got)
 	}
 
 	if err := st.Unsubscribe(ctx, "user-1"); err != nil {

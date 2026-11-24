@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -36,7 +36,7 @@ type Notification struct {
 	DiscordUserID  string
 	LockID         string
 	LastDraws      string
-	NotifiedReady  bool
+	LastPicks      int
 	LastNotifiedAt time.Time
 	NextCheckAt    time.Time
 	CreatedAt      time.Time
@@ -123,6 +123,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if version < 2 {
+		if _, err := tx.ExecContext(ctx,
+			`ALTER TABLE notifications ADD COLUMN last_picks INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}
@@ -190,15 +197,15 @@ func (s *Store) Subscribe(ctx context.Context, n *Notification) error {
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO notifications (
-			discord_user_id, lock_id, last_draws, notified_ready, last_notified_at, next_check_at
+			discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at
 		) VALUES (?, ?, ?, ?, ?, ?)
 		ON CONFLICT(discord_user_id) DO UPDATE SET
 			lock_id = excluded.lock_id,
 			last_draws = excluded.last_draws,
-			notified_ready = excluded.notified_ready,
+			last_picks = excluded.last_picks,
 			last_notified_at = excluded.last_notified_at,
 			next_check_at = excluded.next_check_at`,
-		n.DiscordUserID, n.LockID, n.LastDraws, boolInt(n.NotifiedReady),
+		n.DiscordUserID, n.LockID, n.LastDraws, n.LastPicks,
 		n.LastNotifiedAt.Unix(), n.NextCheckAt.Unix(),
 	)
 	return err
@@ -215,7 +222,7 @@ func (s *Store) Unsubscribe(ctx context.Context, discordUserID string) error {
 // Notification returns a member's subscription, or (nil, nil).
 func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notification, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT discord_user_id, lock_id, last_draws, notified_ready, last_notified_at, next_check_at, created_at
+		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at, created_at
 		FROM notifications WHERE discord_user_id = ?`, discordUserID)
 	return scanNotification(row)
 }
@@ -223,7 +230,7 @@ func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notifi
 // DueNotifications returns every subscription whose next check is due.
 func (s *Store) DueNotifications(ctx context.Context, now time.Time) ([]Notification, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT discord_user_id, lock_id, last_draws, notified_ready, last_notified_at, next_check_at, created_at
+		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at, created_at
 		FROM notifications
 		WHERE next_check_at <= ?
 		ORDER BY next_check_at`, now.Unix())
@@ -253,10 +260,9 @@ type scanner interface {
 func scanNotification(row scanner) (*Notification, error) {
 	var (
 		n                                Notification
-		notifiedReady                    int
 		lastNotified, nextCheck, created int64
 	)
-	err := row.Scan(&n.DiscordUserID, &n.LockID, &n.LastDraws, &notifiedReady,
+	err := row.Scan(&n.DiscordUserID, &n.LockID, &n.LastDraws, &n.LastPicks,
 		&lastNotified, &nextCheck, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -264,16 +270,8 @@ func scanNotification(row scanner) (*Notification, error) {
 	if err != nil {
 		return nil, err
 	}
-	n.NotifiedReady = notifiedReady != 0
 	n.LastNotifiedAt = time.Unix(lastNotified, 0).UTC()
 	n.NextCheckAt = time.Unix(nextCheck, 0).UTC()
 	n.CreatedAt = time.Unix(created, 0).UTC()
 	return &n, nil
-}
-
-func boolInt(value bool) int {
-	if value {
-		return 1
-	}
-	return 0
 }

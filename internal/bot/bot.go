@@ -205,51 +205,77 @@ func UserID(i *discordgo.InteractionCreate) string {
 	return ""
 }
 
-// DeferEphemeral acknowledges an interaction privately and buys three seconds
-// of headroom for API calls.
-func DeferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+// Defer acknowledges an interaction and buys three seconds of headroom for
+// API calls. A private reply is ephemeral.
+func Defer(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
+	data := &discordgo.InteractionResponseData{}
+	if ephemeral {
+		data.Flags = discordgo.MessageFlagsEphemeral
+	}
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseDeferredChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{Flags: discordgo.MessageFlagsEphemeral},
+		Data: data,
+	})
+}
+
+// DeferEphemeral acknowledges an interaction privately.
+func DeferEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return Defer(s, i, true)
+}
+
+// Reply answers an interaction, privately when ephemeral is true.
+func Reply(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) error {
+	data := &discordgo.InteractionResponseData{Content: content}
+	if ephemeral {
+		data.Flags = discordgo.MessageFlagsEphemeral
+	}
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: data,
 	})
 }
 
 // ReplyEphemeral answers an interaction privately.
 func ReplyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: &discordgo.InteractionResponseData{
-			Content: content,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		},
-	})
+	return Reply(s, i, content, true)
 }
 
-// EditEphemeral replaces a deferred private reply.
-func EditEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+// Edit replaces a deferred reply.
+func Edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
 	return err
 }
 
-// EditEphemeralChunks replaces a deferred private reply, splitting long text
-// across follow-up messages.
-func EditEphemeralChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string) error {
+// EditEphemeral replaces a deferred private reply.
+func EditEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	return Edit(s, i, content)
+}
+
+// EditChunks replaces a deferred reply, splitting long text across follow-up
+// messages. Follow-ups match the visibility of the original reply.
+func EditChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
-		return EditEphemeral(s, i, "")
+		return Edit(s, i, "")
 	}
-	if err := EditEphemeral(s, i, chunks[0]); err != nil {
+	if err := Edit(s, i, chunks[0]); err != nil {
 		return err
 	}
 	for _, part := range chunks[1:] {
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-			Content: part,
-			Flags:   discordgo.MessageFlagsEphemeral,
-		}); err != nil {
+		params := &discordgo.WebhookParams{Content: part}
+		if ephemeral {
+			params.Flags = discordgo.MessageFlagsEphemeral
+		}
+		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// EditEphemeralChunks replaces a deferred private reply.
+func EditEphemeralChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string) error {
+	return EditChunks(s, i, text, true)
 }
 
 func chunk(text string, size int) []string {

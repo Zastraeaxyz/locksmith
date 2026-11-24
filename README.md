@@ -13,9 +13,10 @@ The ChastiSafe client lives in
 | --- | --- |
 | `/login` | Opens a private modal and stores your ChastiSafe developer code, encrypted |
 | `/logout` | Removes your saved code and draw subscription |
-| `/lock status` | Shows your active ChastiSafe locks |
+| `/lock status` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
 | `/lock draw` | Draws the next card from your active card lock |
 | `/lock notify [enabled]` | Turns draw notifications on (default) or off |
+| `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply |
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
 is ephemeral, and the value is never echoed. Discord does not offer masked
@@ -24,10 +25,15 @@ password inputs in modals, so this is the closest equivalent.
 ## Notifications
 
 `/lock notify` records the member and their current card lock. A scheduler
-checks each subscription against the lock's draw schedule and sends a DM when a
-new draw is available. After a notification it waits for the member to draw,
-then schedules the next check from the lock's `wait` value, so it does not poll
-ChastiSafe constantly.
+checks each subscription against the lock's draw schedule and sends a DM when
+one or more draws become available. The DM lists draws available, cards left,
+greens needed, and the next draw time. After a notification the bot waits for
+the member to draw, then schedules the next check from the lock's `wait`
+value, so it does not poll ChastiSafe constantly.
+
+`/lock log` shows pick events from the last five minutes by default. Add
+`full:true` for every event, `ref:` to pick a running or previous lock, and
+`public:true` to post the reply in the channel.
 
 ## Configuration
 

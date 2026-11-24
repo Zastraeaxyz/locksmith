@@ -94,36 +94,76 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		return
 	}
 
-	wait := lock.NextPickIn()
 	now := f.now()
+	draws := lock.DrawsAvailable()
 
-	if wait > 0 {
-		n.NotifiedReady = false
-		n.LastDraws = string(lock.Draws)
-		n.NextCheckAt = now.Add(wait + 2*time.Second)
-	} else {
-		if !n.NotifiedReady {
-			msg := fmt.Sprintf("**%s**: a new draw is ready.%s\nRun `/lock draw` in the server.",
-				lockName(lock), cardsLine(lock))
-			if err := sendDM(s, userID, msg); err != nil {
-				f.log.Warn("sending draw notification", "user_id", userID, "err", err)
-				n.NextCheckAt = now.Add(5 * time.Minute)
-			} else {
-				n.LastNotifiedAt = now
-				n.NotifiedReady = true
-				n.NextCheckAt = now.Add(5 * time.Minute)
-				f.log.Info("draw notification sent", "user_id", userID, "lock_id", lock.ID.String())
-			}
-		} else {
-			// Waiting for the member to draw. Poll slowly and do not ping again.
+	if draws > n.LastPicks {
+		if err := sendDM(s, userID, notificationText(lock)); err != nil {
+			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			n.NextCheckAt = now.Add(5 * time.Minute)
+			_ = f.store.Subscribe(ctx, &n)
+			return
 		}
-		n.LastDraws = string(lock.Draws)
+		n.LastNotifiedAt = now
+		f.log.Info("draw notification sent",
+			"user_id", userID,
+			"lock_id", lock.ID.String(),
+			"draws", draws,
+		)
+	}
+
+	n.LockID = lock.ID.String()
+	n.LastDraws = string(lock.Draws)
+	n.LastPicks = draws
+
+	wait := lock.NextPickIn()
+	switch {
+	case draws > 0 && lock.MaxPicks > 0 && draws >= lock.MaxPicks:
+		// Capped: wait for the member to draw before more can accrue.
+		n.NextCheckAt = now.Add(5 * time.Minute)
+	case wait > 0:
+		n.NextCheckAt = now.Add(wait + 2*time.Second)
+	default:
+		n.NextCheckAt = now.Add(5 * time.Minute)
 	}
 
 	if err := f.store.Subscribe(ctx, &n); err != nil {
 		f.log.Warn("updating notification", "user_id", userID, "err", err)
 	}
+}
+
+func notificationText(lock *cs.LoadedLock) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "**%s**: %s available", lockName(lock), drawsPhrase(lock.DrawsAvailable()))
+	if lock.MaxPicks > 0 {
+		fmt.Fprintf(&b, " of %d", lock.MaxPicks)
+	}
+	b.WriteString(".")
+
+	var parts []string
+	if cards := cardsLeft(lock); cards > 0 {
+		parts = append(parts, fmt.Sprintf("%d card%s left", cards, plural(cards)))
+	}
+	if greens := lock.GreensRemaining(); greens > 0 {
+		parts = append(parts, fmt.Sprintf("%d green%s needed", greens, plural(greens)))
+	}
+	if len(parts) > 0 {
+		b.WriteString("\n")
+		b.WriteString(strings.Join(parts, ", "))
+		b.WriteString(".")
+	}
+
+	if wait := lock.NextPickIn(); wait > 0 {
+		fmt.Fprintf(&b, "\nNext draw in %s.", cs.FormatShortDuration(wait))
+	}
+	if lock.NextCheckInIn() > 0 {
+		fmt.Fprintf(&b, "\nCheck-in in %s.", cs.FormatShortDuration(lock.NextCheckInIn()))
+	}
+	if lock.NextHygieneIn() > 0 {
+		fmt.Fprintf(&b, "\nHygiene unlock in %s.", cs.FormatShortDuration(lock.NextHygieneIn()))
+	}
+	b.WriteString("\nRun `/lock draw` in the server.")
+	return b.String()
 }
 
 func findLock(locks []cs.LoadedLock, lockID, chastisafeID string) *cs.LoadedLock {
@@ -145,21 +185,21 @@ func lockName(lock *cs.LoadedLock) string {
 	return "your lock"
 }
 
-func cardsLine(lock *cs.LoadedLock) string {
+func cardsLeft(lock *cs.LoadedLock) int {
 	if lock == nil {
-		return ""
+		return 0
 	}
-	var parts []string
-	if cards := lock.CardsRemaining(); cards > 0 {
-		parts = append(parts, fmt.Sprintf("%d card%s left", cards, plural(cards)))
+	if len(lock.Deck) > 0 {
+		return lock.Deck.Total()
 	}
-	if greens := lock.GreensRemaining(); greens > 0 {
-		parts = append(parts, fmt.Sprintf("%d green%s needed", greens, plural(greens)))
+	return lock.CardsRemaining()
+}
+
+func drawsPhrase(count int) string {
+	if count == 1 {
+		return "1 draw"
 	}
-	if len(parts) == 0 {
-		return ""
-	}
-	return " " + strings.Join(parts, ", ") + "."
+	return fmt.Sprintf("%d draws", count)
 }
 
 func plural(count int) string {
