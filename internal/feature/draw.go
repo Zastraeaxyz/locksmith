@@ -406,11 +406,13 @@ func renderDrawLog(entries []drawEntry) string {
 		fmt.Fprintf(&b, "\n%d. ", idx+1)
 		switch {
 		case entry.card != "":
+			writeCardEmoji(&b, entry.card)
 			b.WriteString(cardLogLabel(entry.card))
 			if entry.card == cs.CardDice && entry.dice > 0 {
 				fmt.Fprintf(&b, " (%d)", entry.dice)
 			}
 		case entry.dice > 0:
+			writeCardEmoji(&b, cs.CardDice)
 			fmt.Fprintf(&b, "Dice %d", entry.dice)
 		default:
 			b.WriteString("Draw")
@@ -466,14 +468,59 @@ func totalsLine(entries []drawEntry) string {
 		}
 	}
 
-	line := fmt.Sprintf("Totals: %d red, %d green", reds, greens)
+	parts := []string{
+		fmt.Sprintf("%s %d red", cardEmojiMarkup(cs.CardRed), reds),
+		fmt.Sprintf("%s %d green", cardEmojiMarkup(cs.CardGreen), greens),
+	}
 	if yellows > 0 {
-		line += fmt.Sprintf(", %d yellow", yellows)
+		parts = append(parts, fmt.Sprintf("%s %d yellow", cardEmojiMarkup(cs.CardYellow), yellows))
 	}
 	if doubles > 0 {
-		line += fmt.Sprintf(", %d double up", doubles)
+		parts = append(parts, fmt.Sprintf("%s %d double up", cardEmojiMarkup(cs.CardDoubleUp), doubles))
 	}
-	return line
+	return "Totals: " + strings.Join(parts, ", ")
+}
+
+// cardEmojiIDs are application emoji, so they render in DMs and in any guild
+// the app is used in, without extra permissions.
+var cardEmojiIDs = map[cs.Card]struct{ name, id string }{
+	cs.CardGreen:    {"green", "1574875078255185957"},
+	cs.CardRed:      {"red", "1574875081254113453"},
+	cs.CardYellowP1: {"yellow_plus1", "1574875089978134669"},
+	cs.CardYellowP2: {"yellow_plus2", "1574875091160932394"},
+	cs.CardYellowP3: {"yellow_plus3", "1574875092079345705"},
+	cs.CardYellowM1: {"yellow_minus1", "1574875086408782055"},
+	cs.CardYellowM2: {"yellow_minus2", "1574875088208273539"},
+	cs.CardYellow:   {"yellow_unknown", "1574875097389465731"},
+	cs.CardYellowUK: {"yellow_unknown", "1574875097389465731"},
+	cs.CardYellowRN: {"yellow_random", "1574875093425856683"},
+	cs.CardFreeze:   {"freeze", "1574875038392385647"},
+	cs.CardArctic:   {"arctic", "1574875033468281044"},
+	cs.CardStun:     {"stun", "1574875085137772624"},
+	cs.CardSticky:   {"sticky", "1574875083883806883"},
+	cs.CardReset:    {"reset", "1574875082701017129"},
+	cs.CardPink:     {"pink", "1574875079970398278"},
+	cs.CardGoAgain:  {"go_again", "1574875040669896885"},
+	cs.CardDoubleUp: {"double", "1574875037104742581"},
+	cs.CardDice:     {"dice", "1574875035749982268"},
+}
+
+// cardEmojiMarkup returns the inline custom emoji for a card, or "" when the
+// card has none.
+func cardEmojiMarkup(card cs.Card) string {
+	emoji, ok := cardEmojiIDs[card]
+	if !ok {
+		return ""
+	}
+	return "<:" + emoji.name + ":" + emoji.id + ">"
+}
+
+// writeCardEmoji writes a card's emoji with a trailing space, if it has one.
+func writeCardEmoji(b *strings.Builder, card cs.Card) {
+	if markup := cardEmojiMarkup(card); markup != "" {
+		b.WriteString(markup)
+		b.WriteString(" ")
+	}
 }
 
 func cardLogLabel(card cs.Card) string {

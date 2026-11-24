@@ -40,9 +40,9 @@ func TestRenderDrawLog(t *testing.T) {
 		{card: cs.CardDice, dice: 4},
 	})
 	for _, want := range []string{
-		"1. Green card",
-		"2. Red card · keyholder",
-		"4",
+		"1. <:green:1574875078255185957> Green card",
+		"2. <:red:1574875081254113453> Red card · keyholder",
+		"<:dice:1574875035749982268> Dice card (4)",
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
@@ -106,12 +106,12 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 
 	embed := session.embed(lock, "", true)
 	for _, want := range []string{
-		"1. Yellow +3",
-		"2. Red card",
-		"3. Double up card",
+		"1. <:yellow_plus3:1574875092079345705> Yellow +3",
+		"2. <:red:1574875081254113453> Red card",
+		"3. <:double:1574875037104742581> Double up card",
 		"3 used · 0 left",
 		"Next draw <t:",
-		"Totals: 1 red, 0 green, 1 yellow, 1 double up",
+		"Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, <:yellow_unknown:1574875097389465731> 1 yellow, <:double:1574875037104742581> 1 double up",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
@@ -124,8 +124,31 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 
 func TestTotalsLineOmitsMissingCards(t *testing.T) {
 	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}})
-	if got != "Totals: 0 red, 2 green" {
-		t.Fatalf("totalsLine = %q", got)
+	want := "Totals: <:red:1574875081254113453> 0 red, <:green:1574875078255185957> 2 green"
+	if got != want {
+		t.Fatalf("totalsLine = %q, want %q", got, want)
+	}
+}
+
+func TestCardEmojiMarkup(t *testing.T) {
+	for card, emoji := range cardEmojiIDs {
+		if !card.Valid() {
+			t.Errorf("cardEmojiIDs has invalid card %q", card)
+		}
+		want := "<:" + emoji.name + ":" + emoji.id + ">"
+		if got := cardEmojiMarkup(card); got != want {
+			t.Errorf("cardEmojiMarkup(%q) = %q, want %q", card, got, want)
+		}
+	}
+
+	if got := cardEmojiMarkup("UNKNOWN"); got != "" {
+		t.Fatalf("unknown card emoji = %q, want empty", got)
+	}
+
+	var b strings.Builder
+	writeCardEmoji(&b, cs.CardGreen)
+	if got, want := b.String(), "<:green:1574875078255185957> "; got != want {
+		t.Fatalf("writeCardEmoji = %q, want %q", got, want)
 	}
 }
 
