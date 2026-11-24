@@ -175,7 +175,7 @@ func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note 
 		for _, entry := range entries {
 			fmt.Fprintf(&b, "\n• %s ", shortTimestamp(entry.Timestamp.Time))
 			writeCardLetterEmoji(&b, entry.Card)
-			b.WriteString(cs.LogEntryText(entry))
+			b.WriteString(logEntryText(entry))
 		}
 	}
 
@@ -183,6 +183,17 @@ func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note 
 		b.WriteString("\n\nTruncated at the newest entries.")
 	}
 	return b.String()
+}
+
+// logEntryText renders one log event without revealing a lock code. A hygiene
+// unlock (event 21) carries the code in Info, and a public lock log is
+// permanent, so Locksmith never prints it.
+func logEntryText(entry cs.LogEntry) string {
+	if entry.EventType == 21 && entry.Info != "" {
+		entry.Info = ""
+		return cs.LogEntryText(entry) + " (code hidden)"
+	}
+	return cs.LogEntryText(entry)
 }
 
 // writeCardLetterEmoji writes the emoji for a ChastiSafe log card letter, if

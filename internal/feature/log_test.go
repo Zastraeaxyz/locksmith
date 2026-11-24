@@ -155,6 +155,21 @@ func TestLogOutputUsesCardEmoji(t *testing.T) {
 	}
 }
 
+func TestLogOutputHidesHygieneCode(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 5, 0, time.UTC)}
+	entries := []cs.LogEntry{
+		{Timestamp: stamp, Actor: 2, EventType: 21, Info: "4821"},
+	}
+
+	out := logOutput("", entries, false, true, "")
+	if strings.Contains(out, "4821") {
+		t.Fatalf("log output leaked a lock code:\n%s", out)
+	}
+	if !strings.Contains(out, "code hidden") {
+		t.Fatalf("log output should say the code is hidden:\n%s", out)
+	}
+}
+
 func TestLogHeaderUsesCompactStatus(t *testing.T) {
 	now := statusTestNow()
 	lock := statusTestLock("a", "Lock A", now)
