@@ -147,11 +147,12 @@ func TestStatusReady(t *testing.T) {
 func TestFreezeStart(t *testing.T) {
 	now := statusTestNow()
 
+	keyholder := &cs.LoadedLock{FrozenByKeyholder: true}
 	newestUnfreeze := []cs.LogEntry{
 		{EventType: 3, Timestamp: cs.Time{Time: now}},
 		{EventType: 2, Timestamp: cs.Time{Time: now.Add(-time.Hour)}},
 	}
-	if _, ok := freezeStart(newestUnfreeze); ok {
+	if _, ok := freezeStartFor(keyholder, newestUnfreeze); ok {
 		t.Fatal("unfreeze after freeze should not report a freeze start")
 	}
 
@@ -159,11 +160,50 @@ func TestFreezeStart(t *testing.T) {
 		{EventType: 2, Timestamp: cs.Time{Time: now.Add(-time.Hour)}},
 		{EventType: 3, Timestamp: cs.Time{Time: now.Add(-2 * time.Hour)}},
 	}
-	since, ok := freezeStart(newestFreeze)
+	since, ok := freezeStartFor(keyholder, newestFreeze)
 	if !ok {
-		t.Fatal("expected a freeze start")
+		t.Fatal("expected a keyholder freeze start")
 	}
 	if !since.Equal(now.Add(-time.Hour)) {
 		t.Fatalf("since = %s", since)
+	}
+
+	cardFreeze := &cs.LoadedLock{FrozenByCard: true}
+	cardEntries := []cs.LogEntry{
+		{EventType: 6, Card: "r", Timestamp: cs.Time{Time: now}},
+		{EventType: 6, Card: "f", Timestamp: cs.Time{Time: now.Add(-time.Hour)}},
+	}
+	since, ok = freezeStartFor(cardFreeze, cardEntries)
+	if !ok {
+		t.Fatal("expected a card freeze start")
+	}
+	if !since.Equal(now.Add(-time.Hour)) {
+		t.Fatalf("card since = %s", since)
+	}
+
+	both := &cs.LoadedLock{FrozenByKeyholder: true, FrozenByCard: true}
+	bothEntries := []cs.LogEntry{
+		{EventType: 2, Timestamp: cs.Time{Time: now.Add(-30 * time.Minute)}},
+		{EventType: 6, Card: "s", Timestamp: cs.Time{Time: now.Add(-10 * time.Minute)}},
+	}
+	since, ok = freezeStartFor(both, bothEntries)
+	if !ok {
+		t.Fatal("expected a mixed freeze start")
+	}
+	if !since.Equal(now.Add(-10 * time.Minute)) {
+		t.Fatalf("mixed since = %s", since)
+	}
+}
+
+func TestIsFreezeCard(t *testing.T) {
+	for _, letter := range []string{"f", "a", "s"} {
+		if !isFreezeCard(letter) {
+			t.Errorf("isFreezeCard(%q) = false, want true", letter)
+		}
+	}
+	for _, letter := range []string{"", "r", "g", "t", "i"} {
+		if isFreezeCard(letter) {
+			t.Errorf("isFreezeCard(%q) = true, want false", letter)
+		}
 	}
 }

@@ -238,8 +238,9 @@ func purposeLabel(purpose cs.Purpose) string {
 }
 
 // freezeTimes finds the current freeze start for each frozen lock. ChastiSafe
-// does not return a freeze timestamp on the lock, so the newest freeze event in
-// the lock log is the source.
+// does not return a freeze timestamp on the lock, so the lock log is the
+// source. A keyholder freeze is event type 2; a freeze card is a pick event
+// with a freeze card.
 func (f *Feature) freezeTimes(ctx context.Context, client *cs.Client, locks []cs.LoadedLock) map[cs.ID]time.Time {
 	times := make(map[cs.ID]time.Time)
 	for idx := range locks {
@@ -247,27 +248,116 @@ func (f *Feature) freezeTimes(ctx context.Context, client *cs.Client, locks []cs
 		if !lock.IsFrozen() {
 			continue
 		}
-		entries, err := client.Log(ctx, lock.ID, 0, 100)
+		entries, err := f.freezeLog(ctx, client, lock)
 		if err != nil {
 			f.log.Warn("loading freeze history", "lock_id", lock.ID.String(), "err", err)
 			continue
 		}
-		if since, ok := freezeStart(entries); ok {
+		if since, ok := freezeStartFor(lock, entries); ok {
 			times[lock.ID] = since
+		} else {
+			f.log.Debug("freeze start not found",
+				"lock_id", lock.ID.String(),
+				"frozen_by_card", lock.FrozenByCard,
+				"frozen_by_keyholder", lock.FrozenByKeyholder,
+				"entries", len(entries),
+			)
 		}
 	}
 	return times
 }
 
-// freezeStart returns the newest freeze event unless an unfreeze came later.
-func freezeStart(entries []cs.LogEntry) (time.Time, bool) {
-	for _, entry := range entries {
-		switch entry.EventType {
-		case 2:
-			return entry.Timestamp.Time, true
-		case 3:
-			return time.Time{}, false
+// freezeLog reads enough of the lock log to locate the current freeze. It
+// stops early once a start is found.
+func (f *Feature) freezeLog(ctx context.Context, client *cs.Client, lock *cs.LoadedLock) ([]cs.LogEntry, error) {
+	const (
+		pageSize = 100
+		maxPages = 3
+	)
+
+	var out []cs.LogEntry
+	for page := 0; page < maxPages; page++ {
+		entries, err := client.Log(ctx, lock.ID, page*pageSize, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, entries...)
+		if _, ok := freezeStartFor(lock, out); ok {
+			return out, nil
+		}
+		if len(entries) < pageSize {
+			break
 		}
 	}
-	return time.Time{}, false
+	return out, nil
+}
+
+// freezeStartFor returns the newest freeze start for the lock, considering
+// both keyholder freezes and freeze-card picks.
+func freezeStartFor(lock *cs.LoadedLock, entries []cs.LogEntry) (time.Time, bool) {
+	if lock == nil {
+		return time.Time{}, false
+	}
+
+	var (
+		keyholderStart time.Time
+		cardStart      time.Time
+		keyholderDone  bool
+		cardSet        bool
+		keyholderSet   bool
+	)
+
+	for _, entry := range entries {
+		if lock.FrozenByKeyholder && !keyholderDone {
+			switch entry.EventType {
+			case 2:
+				keyholderStart = entry.Timestamp.Time
+				keyholderSet = true
+				keyholderDone = true
+			case 3:
+				keyholderDone = true
+			}
+		}
+		if lock.FrozenByCard && !cardSet {
+			if entry.EventType == 6 && isFreezeCard(entry.Card) {
+				cardStart = entry.Timestamp.Time
+				cardSet = true
+			}
+		}
+		if (!lock.FrozenByKeyholder || keyholderDone) && (!lock.FrozenByCard || cardSet) {
+			break
+		}
+	}
+
+	switch {
+	case keyholderSet && cardSet:
+		if cardStart.After(keyholderStart) {
+			return cardStart, true
+		}
+		return keyholderStart, true
+	case keyholderSet:
+		return keyholderStart, true
+	case cardSet:
+		return cardStart, true
+	default:
+		return time.Time{}, false
+	}
+}
+
+// isFreezeCard reports whether a log card letter applies a freeze.
+func isFreezeCard(letter string) bool {
+	letter = strings.ToLower(strings.TrimSpace(letter))
+	if letter == "" {
+		return false
+	}
+	card, ok := cs.CardForLetter(letter[0])
+	if !ok {
+		return false
+	}
+	switch card {
+	case cs.CardFreeze, cs.CardArctic, cs.CardSticky:
+		return true
+	default:
+		return false
+	}
 }
