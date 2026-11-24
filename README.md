@@ -28,6 +28,9 @@ member:
 https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=1&scope=applications.commands
 ```
 
+The easiest way to share either install path is `/locksmith`: it posts a short
+public embed with the user-install button and a link to this repository.
+
 ## Commands
 
 | Command | What it does |
@@ -38,6 +41,7 @@ https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_t
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
 | `/lock notify [enabled]` | Turns draw notifications on (default) or off |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply |
+| `/locksmith` | Posts a short overview with the recommended user-install link and a link to this repository |
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
 is ephemeral, and the value is never echoed. Discord does not offer masked

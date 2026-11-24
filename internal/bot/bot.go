@@ -295,6 +295,21 @@ func ReplyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, conten
 	return Reply(s, i, content, true)
 }
 
+// ReplyEmbed answers an interaction with an optional embed and component row.
+func ReplyEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, ephemeral bool) error {
+	data := &discordgo.InteractionResponseData{
+		Embeds:     embeds,
+		Components: components,
+	}
+	if ephemeral {
+		data.Flags = discordgo.MessageFlagsEphemeral
+	}
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: data,
+	})
+}
+
 // Edit replaces a deferred reply.
 func Edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
