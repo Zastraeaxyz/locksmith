@@ -107,7 +107,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 
 	drawFailed := false
 	if draws > n.LastPicks {
-		if err := sendDM(s, userID, notificationText(lock, now)); err != nil {
+		if err := sendDMWithComponents(s, userID, notificationText(lock, now), drawNotificationButtons(lock)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			drawFailed = true
 			sendFailed = true
@@ -225,8 +225,25 @@ func notificationText(lock *cs.LoadedLock, now time.Time) string {
 	if hygiene := lock.NextHygieneIn(); hygiene > 0 {
 		fmt.Fprintf(&b, "\nHygiene unlock %s.", relativeTimestamp(now.Add(hygiene)))
 	}
-	b.WriteString("\nRun `/lock draw` in the server.")
+	b.WriteString("\nPress **Open draw board** to draw here, or run `/lock draw`.")
 	return b.String()
+}
+
+// drawNotificationButtons offers the draw board directly in the notification
+// DM, so the member does not have to run a command.
+func drawNotificationButtons(lock *cs.LoadedLock) []discordgo.MessageComponent {
+	if lock == nil {
+		return nil
+	}
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+			discordgo.Button{
+				CustomID: drawBoardNamespace + ":open:" + lock.ID.String(),
+				Label:    "Open draw board",
+				Style:    discordgo.PrimaryButton,
+			},
+		}},
+	}
 }
 
 func findLock(locks []cs.LoadedLock, lockID, chastisafeID string, now time.Time) *cs.LoadedLock {

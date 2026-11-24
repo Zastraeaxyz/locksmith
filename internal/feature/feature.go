@@ -113,6 +113,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddModal(store.DocumentRules, f.handleRulesModal)
 	b.AddModal(store.DocumentKinks, f.handleKinksModal)
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
+	b.AddComponent(drawBoardNamespace, f.handleDrawBoardComponent)
 	b.AddComponent(checkinNamespace, f.handleCheckinComponent)
 	b.AddComponent(shareNamespace, f.handleShareComponent)
 	b.AddComponent(simulationNamespace, f.handleSimulationComponent)

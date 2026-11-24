@@ -18,6 +18,7 @@ import (
 
 const (
 	drawNamespace        = "draw"
+	drawBoardNamespace   = "drawboard"
 	drawSessionTTL       = 2 * time.Hour
 	drawLogLimit         = 50
 	drawDescriptionLimit = 3900
@@ -134,7 +135,31 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	if err := bot.Defer(s, i, false); err != nil {
 		return err
 	}
+	return f.postDrawBoard(ctx, s, i, userID, "")
+}
 
+// handleDrawBoardComponent opens a fresh draw board from a draw notification
+// DM. The board is a new message in the same DM, so the notification stays put.
+func (f *Feature) handleDrawBoardComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	parts := strings.Split(i.MessageComponentData().CustomID, ":")
+	if len(parts) != 3 || parts[1] != "open" || strings.TrimSpace(parts[2]) == "" {
+		return bot.ReplyEphemeral(s, i, "This button is out of date.")
+	}
+
+	userID := bot.UserID(i)
+	if userID == "" {
+		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
+	}
+	if err := bot.Defer(s, i, false); err != nil {
+		return err
+	}
+	return f.postDrawBoard(ctx, s, i, userID, cs.ID(parts[2]))
+}
+
+// postDrawBoard posts the board in the interaction's channel. The caller must
+// have deferred the reply publicly. An empty lockID picks the newest drawable
+// lock, while a given ID pins the board to a lock from a notification.
+func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, userID string, lockID cs.ID) error {
 	client, cred, err := f.clientFor(ctx, userID)
 	if err != nil {
 		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
@@ -144,23 +169,9 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
 	}
 
-	lock := activeCardLock(locks, cred.ChastiSafeID)
+	lock, refusal := f.resolveBoardLock(ctx, client, locks, cred.ChastiSafeID, lockID)
 	if lock == nil {
-		// A ready lock still gets a board, because the ready actions (open,
-		// put green back, reset, ask the keyholder) live there.
-		lock = readyCardLock(locks, cred.ChastiSafeID)
-	}
-	if lock == nil {
-		target := drawTarget(locks, cred.ChastiSafeID)
-		freeze := map[cs.ID]time.Time{}
-		if target != nil && target.IsFrozen() {
-			freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
-		}
-		return f.replyDrawPrivate(s, i, drawBlockedMessage(target, freeze, f.now()))
-	}
-	// A lock with nothing to draw gets a plain private note, not an empty board.
-	if !lock.IsReady() && lock.DrawsAvailable() == 0 {
-		return f.replyDrawPrivate(s, i, drawBlockedMessage(lock, nil, f.now()))
+		return f.replyDrawPrivate(s, i, refusal)
 	}
 
 	session := &drawSession{
@@ -186,6 +197,46 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 		session.setMessageID(msg.ID)
 	}
 	return nil
+}
+
+// resolveBoardLock picks the lock for a board and explains any refusal. A
+// lockID pins one lock, while an empty ID picks the newest drawable lock or a
+// ready one, so the ready actions stay reachable.
+func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks []cs.LoadedLock, chastisafeID string, lockID cs.ID) (*cs.LoadedLock, string) {
+	now := f.now()
+
+	if lockID != "" {
+		lock := findLockByID(locks, lockID)
+		switch {
+		case lock == nil:
+			return nil, "That lock is no longer active. Run `/lock draw` to pick another."
+		case chastisafeID != "" && lock.LockeeID.String() != chastisafeID:
+			return nil, "That lock is not yours."
+		case !lock.IsCardLock():
+			return nil, fmt.Sprintf("**%s** is not a card lock.", lockName(lock))
+		case lock.IsFrozen():
+			freeze := f.freezeTimes(ctx, client, []cs.LoadedLock{*lock})
+			return nil, drawBlockedMessage(lock, freeze, now)
+		case !lock.IsReady() && lock.DrawsAvailable() == 0:
+			return nil, drawBlockedMessage(lock, nil, now)
+		}
+		return lock, ""
+	}
+
+	lock := activeCardLock(locks, chastisafeID)
+	if lock == nil {
+		lock = readyCardLock(locks, chastisafeID)
+	}
+	if lock != nil {
+		return lock, ""
+	}
+
+	target := drawTarget(locks, chastisafeID)
+	freeze := map[cs.ID]time.Time{}
+	if target != nil && target.IsFrozen() {
+		freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
+	}
+	return nil, drawBlockedMessage(target, freeze, now)
 }
 
 // replyDrawPrivate removes the public placeholder and answers privately, since

@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -343,5 +344,68 @@ func TestReadyCardLockSkipsFrozen(t *testing.T) {
 	got := readyCardLock(locks, "me")
 	if got == nil || got.ID != "ready" {
 		t.Fatalf("readyCardLock = %+v, want the unfrozen ready lock", got)
+	}
+}
+
+func TestResolveBoardLockPinsNotificationLock(t *testing.T) {
+	f := &Feature{now: openTestNow}
+	now := openTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "notified", LockName: "Notified", Type: "card", Picks: 1, LockeeID: "me"},
+		{ID: "other", LockName: "Other", Type: "card", Picks: 2, LockeeID: "me", LoadTime: cs.Time{Time: now}},
+	}
+
+	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "notified")
+	if lock == nil || lock.ID != "notified" {
+		t.Fatalf("lock = %+v, refusal = %q, want the notified lock", lock, refusal)
+	}
+	if refusal != "" {
+		t.Fatalf("refusal = %q, want none", refusal)
+	}
+}
+
+func TestResolveBoardLockRefusals(t *testing.T) {
+	f := &Feature{now: openTestNow}
+	now := openTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "theirs", LockName: "Theirs", Type: "card", Picks: 1, LockeeID: "them"},
+		{ID: "timer", LockName: "Timer", Type: "timer", LockeeID: "me"},
+		{ID: "waiting", LockName: "Waiting", Type: "card", Picks: 0, Wait: 300, LockeeID: "me"},
+		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me", LoadTime: cs.Time{Time: now}},
+	}
+
+	cases := map[string]string{
+		"missing": "no longer active",
+		"theirs":  "not yours",
+		"timer":   "not a card lock",
+		"waiting": "No draws available",
+	}
+	for lockID, want := range cases {
+		lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", cs.ID(lockID))
+		if lock != nil {
+			t.Errorf("%s: lock = %+v, want nil", lockID, lock)
+		}
+		if !strings.Contains(refusal, want) {
+			t.Errorf("%s: refusal = %q, want %q", lockID, refusal, want)
+		}
+	}
+
+	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "ready")
+	if lock == nil || lock.ID != "ready" || refusal != "" {
+		t.Fatalf("ready lock = %+v, refusal = %q", lock, refusal)
+	}
+}
+
+func TestResolveBoardLockWithoutIDPrefersDrawable(t *testing.T) {
+	f := &Feature{now: openTestNow}
+	now := openTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "drawable", LockName: "Drawable", Type: "card", Picks: 1, LockeeID: "me", LoadTime: cs.Time{Time: now.Add(-time.Hour)}},
+		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me", LoadTime: cs.Time{Time: now}},
+	}
+
+	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	if lock == nil || lock.ID != "drawable" || refusal != "" {
+		t.Fatalf("lock = %+v, refusal = %q, want the drawable lock", lock, refusal)
 	}
 }

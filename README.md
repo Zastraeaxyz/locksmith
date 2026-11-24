@@ -116,7 +116,8 @@ otherwise a lock with a check-in schedule. A member watches one lock at a time,
 and a new subscription replaces the old one. The scheduler checks each
 subscription against the lock's draw schedule and sends a DM when one or more
 draws become available. The DM lists draws available, cards left, greens needed,
-and the next draw time. After a notification the bot waits for the member to
+and the next draw time, and has an **Open draw board** button that posts the
+board in that same DM. After a notification the bot waits for the member to
 draw, then schedules the next check from the lock's `wait` value, so it does not
 poll ChastiSafe constantly.
 

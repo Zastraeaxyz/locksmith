@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
 
@@ -112,6 +113,7 @@ func TestNotificationText(t *testing.T) {
 		"2 greens needed",
 		"Next draw <t:",
 		":R>",
+		"Open draw board",
 		"/lock draw",
 	} {
 		if !strings.Contains(text, want) {
@@ -122,6 +124,34 @@ func TestNotificationText(t *testing.T) {
 		if strings.Contains(text, bad) {
 			t.Errorf("notificationText still contains %q:\n%s", bad, text)
 		}
+	}
+}
+
+func TestDrawNotificationButtons(t *testing.T) {
+	lock := &cs.LoadedLock{ID: "lock-id", Type: "card"}
+	components := drawNotificationButtons(lock)
+	if len(components) != 1 {
+		t.Fatalf("components = %d, want 1 row", len(components))
+	}
+	row, ok := components[0].(discordgo.ActionsRow)
+	if !ok || len(row.Components) != 1 {
+		t.Fatalf("row = %+v, want one button", components[0])
+	}
+	button, ok := row.Components[0].(discordgo.Button)
+	if !ok {
+		t.Fatalf("component = %T, want a button", row.Components[0])
+	}
+	if button.CustomID != "drawboard:open:lock-id" {
+		t.Errorf("custom ID = %q", button.CustomID)
+	}
+	if button.Label != "Open draw board" {
+		t.Errorf("label = %q", button.Label)
+	}
+	if button.Style != discordgo.PrimaryButton {
+		t.Errorf("style = %v, want primary", button.Style)
+	}
+	if got := drawNotificationButtons(nil); got != nil {
+		t.Errorf("nil lock buttons = %+v, want nil", got)
 	}
 }
 
