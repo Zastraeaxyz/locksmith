@@ -242,39 +242,7 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 }
 
 func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	userID := bot.UserID(i)
-	if err := bot.DeferEphemeral(s, i); err != nil {
-		return err
-	}
-
-	client, cred, err := f.clientFor(ctx, userID)
-	if err != nil {
-		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
-	}
-	locks, err := client.Loaded(ctx)
-	if err != nil {
-		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
-	}
-
-	lock := activeCardLock(locks, cred.ChastiSafeID)
-	if lock == nil {
-		return sendEphemeral(s, i, "You have no active card lock to draw from.")
-	}
-	if lock.DrawsAvailable() == 0 {
-		if wait := lock.NextPickIn(); wait > 0 {
-			return sendEphemeral(s, i, fmt.Sprintf(
-				"No draws available yet for **%s**. Next draw in %s.",
-				lockName(lock), cs.FormatShortDuration(wait),
-			))
-		}
-		return sendEphemeral(s, i, fmt.Sprintf("No draws available right now for **%s**.", lockName(lock)))
-	}
-
-	result, err := client.Pick(ctx, lock.ID)
-	if err != nil {
-		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
-	}
-	return sendEphemeral(s, i, drawText(lock, result))
+	return f.startDrawBoard(ctx, s, i)
 }
 
 func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, enabled bool) error {
@@ -370,42 +338,6 @@ func activeCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
 		return withDraws
 	}
 	return newest
-}
-
-func drawText(lock *cs.LoadedLock, result *cs.PickResult) string {
-	name := "your lock"
-	if lock != nil {
-		if trimmed := strings.TrimSpace(lock.LockName); trimmed != "" {
-			name = trimmed
-		}
-	}
-
-	var b strings.Builder
-	switch {
-	case result != nil && result.Card != "":
-		fmt.Fprintf(&b, "Drew **%s** from **%s**.", result.Card.Label(), name)
-	case result != nil && result.Dice > 0:
-		fmt.Fprintf(&b, "Rolled **%d** on **%s**.", result.Dice, name)
-	default:
-		fmt.Fprintf(&b, "Drew from **%s**.", name)
-	}
-
-	updated := lock
-	if result != nil && result.Lock != nil {
-		updated = result.Lock
-	}
-	if updated != nil {
-		b.WriteString("\n")
-		b.WriteString(cs.LockStateText(updated))
-		fmt.Fprintf(&b, "\n%s available.", drawsPhrase(updated.DrawsAvailable()))
-		if wait := updated.NextPickIn(); wait > 0 {
-			fmt.Fprintf(&b, " Next draw in %s.", cs.FormatShortDuration(wait))
-		}
-	}
-	if result != nil && result.Done {
-		b.WriteString("\nThat was the last draw. The lock is ready to unlock.")
-	}
-	return b.String()
 }
 
 func modalValue(components []discordgo.MessageComponent, customID string) string {

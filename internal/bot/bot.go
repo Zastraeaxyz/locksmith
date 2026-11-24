@@ -20,6 +20,9 @@ type CommandHandler func(ctx context.Context, s *discordgo.Session, i *discordgo
 // ModalHandler runs a modal submission.
 type ModalHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
 
+// ComponentHandler runs a message component interaction (buttons, selects).
+type ComponentHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
+
 // Bot owns the Discord session and dispatches interactions.
 type Bot struct {
 	Session *discordgo.Session
@@ -27,11 +30,12 @@ type Bot struct {
 
 	guildID string
 
-	mu              sync.RWMutex
-	commands        map[string]*discordgo.ApplicationCommand
-	commandHandlers map[string]CommandHandler
-	modalHandlers   map[string]ModalHandler
-	synced          bool
+	mu                sync.RWMutex
+	commands          map[string]*discordgo.ApplicationCommand
+	commandHandlers   map[string]CommandHandler
+	modalHandlers     map[string]ModalHandler
+	componentHandlers map[string]ComponentHandler
+	synced            bool
 }
 
 // New creates a bot session for one guild.
@@ -52,12 +56,13 @@ func New(token, guildID string, log *slog.Logger) (*Bot, error) {
 	s.ShouldReconnectOnError = true
 
 	b := &Bot{
-		Session:         s,
-		Log:             log,
-		guildID:         strings.TrimSpace(guildID),
-		commands:        make(map[string]*discordgo.ApplicationCommand),
-		commandHandlers: make(map[string]CommandHandler),
-		modalHandlers:   make(map[string]ModalHandler),
+		Session:           s,
+		Log:               log,
+		guildID:           strings.TrimSpace(guildID),
+		commands:          make(map[string]*discordgo.ApplicationCommand),
+		commandHandlers:   make(map[string]CommandHandler),
+		modalHandlers:     make(map[string]ModalHandler),
+		componentHandlers: make(map[string]ComponentHandler),
 	}
 	s.AddHandler(b.handleReady)
 	s.AddHandler(b.handleInteraction)
@@ -79,6 +84,14 @@ func (b *Bot) AddModal(namespace string, handler ModalHandler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.modalHandlers[namespace] = handler
+}
+
+// AddComponent registers a message component handler for a custom ID
+// namespace, for example "draw" handles "draw:next:<session>".
+func (b *Bot) AddComponent(namespace string, handler ComponentHandler) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.componentHandlers[namespace] = handler
 }
 
 // Run validates the token, connects the gateway, and blocks until ctx is done.
@@ -166,6 +179,15 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 			return
 		}
 		b.run("modal "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
+	case discordgo.InteractionMessageComponent:
+		namespace := customIDNamespace(i.MessageComponentData().CustomID)
+		b.mu.RLock()
+		handler := b.componentHandlers[namespace]
+		b.mu.RUnlock()
+		if handler == nil {
+			return
+		}
+		b.run("component "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
 	}
 }
 
@@ -243,6 +265,45 @@ func ReplyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, conten
 // Edit replaces a deferred reply.
 func Edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	_, err := s.InteractionResponseEdit(i.Interaction, &discordgo.WebhookEdit{Content: &content})
+	return err
+}
+
+// EditMessage replaces a deferred reply with an optional embed and component
+// row. A non-nil empty components slice removes any existing components.
+func EditMessage(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
+	edit := &discordgo.WebhookEdit{}
+	if content != "" {
+		edit.Content = &content
+	}
+	if embeds != nil {
+		edit.Embeds = &embeds
+	}
+	if components == nil {
+		components = []discordgo.MessageComponent{}
+	}
+	edit.Components = &components
+	_, err := s.InteractionResponseEdit(i.Interaction, edit)
+	return err
+}
+
+// DeferUpdate acknowledges a component interaction in place.
+func DeferUpdate(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+	})
+}
+
+// ClearComponents removes the components from a message the bot posted.
+func ClearComponents(s *discordgo.Session, channelID, messageID string) error {
+	if channelID == "" || messageID == "" {
+		return nil
+	}
+	empty := []discordgo.MessageComponent{}
+	_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
+		Channel:    channelID,
+		ID:         messageID,
+		Components: &empty,
+	})
 	return err
 }
 

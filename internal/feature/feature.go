@@ -49,6 +49,9 @@ type Feature struct {
 	now            func() time.Time
 	notifyInterval time.Duration
 	limiter        *loginLimiter
+
+	sessionsMu sync.Mutex
+	sessions   map[string]*drawSession
 }
 
 // New builds the feature.
@@ -74,6 +77,7 @@ func New(opts Options) *Feature {
 		now:            opts.Now,
 		notifyInterval: opts.NotifyInterval,
 		limiter:        newLoginLimiter(5, 10*time.Minute, opts.Now),
+		sessions:       make(map[string]*drawSession),
 	}
 }
 
@@ -86,6 +90,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(logoutCommand(), f.handleLogoutCommand)
 	b.AddCommand(lockCommand(), f.handleLockCommand)
 	b.AddModal(modalNamespace, f.handleLoginModal)
+	b.AddComponent(drawNamespace, f.handleDrawComponent)
 }
 
 func (f *Feature) clientFor(ctx context.Context, userID string) (*cs.Client, *store.Credential, error) {
