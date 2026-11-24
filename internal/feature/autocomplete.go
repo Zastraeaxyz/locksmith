@@ -66,6 +66,16 @@ func (f *Feature) handleLockAutocomplete(ctx context.Context, s *discordgo.Sessi
 			f.loadedCache.put(userID, locks)
 		}
 		return bot.Autocomplete(s, i, buildRefChoices(ref, checkinCandidates(locks, cred.ChastiSafeID)))
+	case "open":
+		locks, ok := f.loadedCache.get(userID)
+		if !ok {
+			locks, err = client.Loaded(ctx)
+			if err != nil {
+				return bot.Autocomplete(s, i, nil)
+			}
+			f.loadedCache.put(userID, locks)
+		}
+		return bot.Autocomplete(s, i, buildRefChoices(ref, openCandidates(locks, cred.ChastiSafeID)))
 	case "log":
 		locks, hasLocks := f.loadedCache.get(userID)
 		if !hasLocks {
@@ -190,6 +200,24 @@ func checkinCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
 	for idx := range own {
 		lock := &own[idx]
 		if lock.CheckInPeriod <= 0 || lock.IsReady() {
+			continue
+		}
+		out = append(out, refChoice{id: lock.ID, name: lockName(lock)})
+	}
+	return out
+}
+
+// openCandidates lists the caller's locks that are ready to open.
+func openCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
+	own := filterOwn(locks, chastisafeID)
+	sort.SliceStable(own, func(a, b int) bool {
+		return own[a].LoadTime.Time.After(own[b].LoadTime.Time)
+	})
+
+	out := make([]refChoice, 0, len(own))
+	for idx := range own {
+		lock := &own[idx]
+		if !lock.IsReady() || lock.IsFrozen() {
 			continue
 		}
 		out = append(out, refChoice{id: lock.ID, name: lockName(lock)})

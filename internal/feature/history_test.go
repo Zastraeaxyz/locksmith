@@ -138,12 +138,13 @@ func TestRenderHistoryLine(t *testing.T) {
 		LockDuration: int((4*time.Hour + 12*time.Minute).Seconds()),
 		LockPurpose:  cs.PurposeChastity,
 		Rating:       5,
+		LockCode:     "5241",
 	}
 
-	text := renderHistory(historyView{entries: []cs.RecentLock{lock}})
+	text := renderHistory(historyView{entries: []cs.RecentLock{lock}}, true)
 	for _, want := range []string{
 		"**Your lock history** (1)",
-		"• **Short lock** · 4h 12m · completed · <t:",
+		"• **Short lock** · code `5241` · 4h 12m · completed · <t:",
 		"keyholder Raven",
 		"rated 5",
 	} {
@@ -158,6 +159,30 @@ func TestRenderHistoryLine(t *testing.T) {
 	}
 }
 
+func TestRenderHistoryHidesCodesWhenPublic(t *testing.T) {
+	text := renderHistory(historyView{entries: []cs.RecentLock{{
+		LockName:   "Short lock",
+		UnlockTime: cs.Time{Time: historyTestNow()},
+		LockCode:   "5241",
+	}}}, false)
+	if strings.Contains(text, "5241") || strings.Contains(text, "code `") {
+		t.Fatalf("public history leaked a code:\n%s", text)
+	}
+	if !strings.Contains(text, "Codes are hidden from public history") {
+		t.Fatalf("public history should explain the missing codes:\n%s", text)
+	}
+}
+
+func TestRenderHistoryOmitsEmptyCodes(t *testing.T) {
+	text := renderHistory(historyView{entries: []cs.RecentLock{{
+		LockName:   "Abandoned",
+		UnlockTime: cs.Time{Time: historyTestNow()},
+	}}}, true)
+	if strings.Contains(text, "code `") {
+		t.Fatalf("history invented a code:\n%s", text)
+	}
+}
+
 func TestRenderHistoryPurposeAndSelfKeyholder(t *testing.T) {
 	now := historyTestNow()
 	lock := cs.RecentLock{
@@ -167,7 +192,7 @@ func TestRenderHistoryPurposeAndSelfKeyholder(t *testing.T) {
 		UnlockTime:  cs.Time{Time: now},
 	}
 
-	text := renderHistory(historyView{entries: []cs.RecentLock{lock}})
+	text := renderHistory(historyView{entries: []cs.RecentLock{lock}}, true)
 	if !strings.Contains(text, "TEST") {
 		t.Errorf("history should tag a TEST lock:\n%s", text)
 	}
@@ -177,11 +202,11 @@ func TestRenderHistoryPurposeAndSelfKeyholder(t *testing.T) {
 }
 
 func TestRenderHistoryEmpty(t *testing.T) {
-	if got := renderHistory(historyView{}); got != "You have no completed ChastiSafe locks." {
+	if got := renderHistory(historyView{}, true); got != "You have no completed ChastiSafe locks." {
 		t.Fatalf("empty history = %q", got)
 	}
 
-	text := renderHistory(historyView{hiddenTest: 2, hiddenOld: 1})
+	text := renderHistory(historyView{hiddenTest: 2, hiddenOld: 1}, true)
 	for _, want := range []string{
 		"No completed locks to show.",
 		"2 TEST locks hidden",

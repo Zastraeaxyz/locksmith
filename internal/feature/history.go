@@ -86,7 +86,7 @@ func (f *Feature) handleHistoryCommand(ctx context.Context, s *discordgo.Session
 		includeOld:  boolOption(opts, "include_old"),
 		now:         f.now(),
 	})
-	return bot.EditChunks(s, i, renderHistory(view), !public)
+	return bot.EditChunks(s, i, renderHistory(view, !public), !public)
 }
 
 // newHistoryView keeps recent non-test locks by default, sorts them newest
@@ -145,7 +145,9 @@ func historySortKey(lock cs.RecentLock) time.Time {
 	return at
 }
 
-func renderHistory(view historyView) string {
+// renderHistory formats the history. Codes are shown only in a private reply,
+// because a public reply is permanent and can be forwarded.
+func renderHistory(view historyView, showCodes bool) string {
 	var b strings.Builder
 	if len(view.entries) == 0 {
 		if view.hiddenTest == 0 && view.hiddenOld == 0 {
@@ -156,7 +158,7 @@ func renderHistory(view historyView) string {
 		fmt.Fprintf(&b, "**Your lock history** (%d)\n", len(view.entries))
 		for _, lock := range view.entries {
 			b.WriteString("\n")
-			b.WriteString(historyLine(lock))
+			b.WriteString(historyLine(lock, showCodes))
 		}
 	}
 
@@ -164,14 +166,14 @@ func renderHistory(view historyView) string {
 		fmt.Fprintf(&b, "\n\nShowing the newest %d locks, %d older %s left out.",
 			historyEntryLimit, view.truncated, entryWord(view.truncated))
 	}
-	if hints := historyHints(view); hints != "" {
+	if hints := historyHints(view, !showCodes); hints != "" {
 		b.WriteString("\n\n")
 		b.WriteString(hints)
 	}
 	return b.String()
 }
 
-func historyHints(view historyView) string {
+func historyHints(view historyView, codesHidden bool) string {
 	var hints []string
 	if view.hiddenTest > 0 {
 		hints = append(hints, fmt.Sprintf(
@@ -185,12 +187,29 @@ func historyHints(view historyView) string {
 			view.hiddenOld, plural(view.hiddenOld),
 		))
 	}
+	if codesHidden && historyHasCodes(view.entries) {
+		hints = append(hints, "Codes are hidden from public history. Run `/history` privately to see them.")
+	}
 	return strings.Join(hints, "\n")
 }
 
+func historyHasCodes(entries []cs.RecentLock) bool {
+	for _, lock := range entries {
+		if strings.TrimSpace(lock.LockCode) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // historyLine renders one completed lock as a compact single line.
-func historyLine(lock cs.RecentLock) string {
+func historyLine(lock cs.RecentLock, showCode bool) string {
 	parts := []string{"**" + recentName(&lock) + "**"}
+	if showCode {
+		if code := strings.TrimSpace(lock.LockCode); code != "" {
+			parts = append(parts, "code `"+code+"`")
+		}
+	}
 	if duration := historyDuration(time.Duration(lock.LockDuration) * time.Second); duration != "" {
 		parts = append(parts, duration)
 	}

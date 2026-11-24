@@ -68,6 +68,20 @@ func lockCommand() *discordgo.ApplicationCommand {
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "open",
+				Description: "Open a ready lock and reveal its device code",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick a lock that is ready to open",
+						Required:     false,
+						Autocomplete: true,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "checkin",
 				Description: "Record a required check-in",
 				Options: []*discordgo.ApplicationCommandOption{
@@ -296,6 +310,8 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 		return f.handleLockLoad(ctx, s, i, link)
 	case "draw":
 		return f.handleLockDraw(ctx, s, i)
+	case "open":
+		return f.handleLockOpen(ctx, s, i, sub.Options)
 	case "checkin":
 		return f.handleLockCheckin(ctx, s, i, sub.Options)
 	case "share":
