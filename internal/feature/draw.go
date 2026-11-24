@@ -128,11 +128,11 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 		if target != nil && target.IsFrozen() {
 			freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
 		}
-		message := drawBlockedMessage(target, freeze, f.now())
-		if message == "" {
-			message = "You have no active card lock to draw from."
-		}
-		return f.replyDrawPrivate(s, i, message)
+		return f.replyDrawPrivate(s, i, drawBlockedMessage(target, freeze, f.now()))
+	}
+	// A lock with nothing to draw gets a plain private note, not an empty board.
+	if lock.DrawsAvailable() == 0 {
+		return f.replyDrawPrivate(s, i, drawBlockedMessage(lock, nil, f.now()))
 	}
 
 	session := &drawSession{
