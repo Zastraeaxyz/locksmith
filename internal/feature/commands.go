@@ -240,7 +240,7 @@ func loginWelcomeText(identity *cs.Identity) string {
 
 	b.WriteString("**Commands**\n")
 	b.WriteString("• `/lock status` shows your active locks, draws left, timers, and next check-in.\n")
-	b.WriteString("• `/lock load link:<share link>` starts a lock a keyholder shared with you. I ask for the lock code and passcode privately.\n")
+	b.WriteString("• `/lock load link:<share link>` starts a lock a keyholder shared with you. I ask for the lock code and keyholder passcode privately.\n")
 	b.WriteString("• `/lock draw` opens the draw board. Press **Draw** to pick a card.\n")
 	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
 	b.WriteString("• `/lock notify [enabled]` turns DM reminders for draws and check-ins on or off.\n")

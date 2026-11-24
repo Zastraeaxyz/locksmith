@@ -280,7 +280,7 @@ func (f *Feature) loadFailure(ctx context.Context, userID string, err error, tem
 	case cs.IsReason(err, "locknotavailable"):
 		return "That lock is not available to load right now. It may be disabled, or your keyholder may have blocked it."
 	case cs.IsReason(err, "passcodemismatch"):
-		return "That passcode did not match. Check it with your keyholder, then run `/lock load` again and enter it in the passcode field."
+		return "That keyholder passcode did not match. Check it with your keyholder, then run `/lock load` again and enter it in the keyholder passcode field."
 	case errors.Is(err, cs.ErrLockNotFound):
 		return "That lock template no longer exists. Ask your keyholder for a fresh share link."
 	default:
