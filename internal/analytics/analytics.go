@@ -19,13 +19,17 @@ import (
 )
 
 const (
-	sendPath    = "/api/send"
-	hostname    = "locksmith"
-	userAgent   = "locksmith/1"
+	sendPath = "/api/send"
+	hostname = "locksmith"
+	// Umami drops events whose User-Agent isbot flags as a bot, and isbot
+	// treats a bare "locksmith/1" as one. The browser-shaped prefix passes the
+	// check; the Locksmith token keeps the client identifiable.
+	userAgent   = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Locksmith/1"
 	eventURL    = "/"
 	queueSize   = 64
 	sendTimeout = 5 * time.Second
 	closeWait   = 5 * time.Second
+	maxBody     = 4096
 )
 
 // Options configures the tracker. Both SiteID and Endpoint must be set;
@@ -48,6 +52,11 @@ type Tracker struct {
 	events    chan event
 	done      chan struct{}
 	closeOnce sync.Once
+
+	// cache is the Umami session token. Reusing it keeps every event in one
+	// session instead of creating a session per event.
+	cacheMu sync.Mutex
+	cache   string
 }
 
 type event struct {
@@ -149,6 +158,9 @@ func (t *Tracker) send(e event) {
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", userAgent)
+	if cache := t.cacheToken(); cache != "" {
+		req.Header.Set("x-umami-cache", cache)
+	}
 
 	resp, err := t.client.Do(req)
 	if err != nil {
@@ -156,10 +168,33 @@ func (t *Tracker) send(e event) {
 		return
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+
+	responseBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
 	if resp.StatusCode >= http.StatusMultipleChoices {
 		t.log.Debug("analytics rejected event", "event", e.name, "status", resp.StatusCode)
+		return
 	}
+	t.storeCache(responseBody)
+}
+
+// cacheToken returns the current Umami session token, if any.
+func (t *Tracker) cacheToken() string {
+	t.cacheMu.Lock()
+	defer t.cacheMu.Unlock()
+	return t.cache
+}
+
+// storeCache keeps the session token Umami returns with each accepted event.
+func (t *Tracker) storeCache(body []byte) {
+	var result struct {
+		Cache string `json:"cache"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || result.Cache == "" {
+		return
+	}
+	t.cacheMu.Lock()
+	t.cache = result.Cache
+	t.cacheMu.Unlock()
 }
 
 // normalizeEndpoint accepts a bare host and adds the https scheme.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -139,6 +140,17 @@ func TestTrackSurvivesFailures(t *testing.T) {
 	failing.Close()
 }
 
+func TestUserAgentPassesBotCheck(t *testing.T) {
+	// Umami silently drops events whose user agent isbot reports as a bot.
+	// isbot accepts a browser-shaped user agent, so keep that prefix.
+	if !strings.HasPrefix(userAgent, "Mozilla/5.0 ") {
+		t.Fatalf("user agent = %q, want a Mozilla/5.0 prefix so Umami accepts it", userAgent)
+	}
+	if !strings.Contains(userAgent, "Locksmith/") {
+		t.Fatalf("user agent = %q, want a Locksmith token", userAgent)
+	}
+}
+
 func TestNormalizeEndpoint(t *testing.T) {
 	cases := map[string]string{
 		"":                                 "",
@@ -157,5 +169,43 @@ func TestNormalizeEndpoint(t *testing.T) {
 func TestNilTrackerIsNoop(t *testing.T) {
 	var tracker *Tracker
 	tracker.Track("/login", nil)
+	tracker.Close()
+}
+
+func TestCacheTokenReused(t *testing.T) {
+	headers := make(chan string, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		headers <- r.Header.Get("x-umami-cache")
+		_, _ = io.WriteString(w, `{"cache":"token-1","sessionId":"session"}`)
+	}))
+	defer server.Close()
+
+	tracker := New(Options{
+		SiteID:   "site-id",
+		Endpoint: server.URL,
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	tracker.Track("/login", nil)
+	tracker.Track("/logout", nil)
+	tracker.Close()
+
+	if got := <-headers; got != "" {
+		t.Errorf("first request cache = %q, want empty", got)
+	}
+	if got := <-headers; got != "token-1" {
+		t.Errorf("second request cache = %q, want token-1", got)
+	}
+}
+
+func TestCacheTokenSurvivesBadResponse(t *testing.T) {
+	tracker := New(Options{
+		SiteID:   "site-id",
+		Endpoint: "http://127.0.0.1:1",
+		Logger:   slog.New(slog.NewTextHandler(io.Discard, nil)),
+	})
+	tracker.storeCache([]byte("not json"))
+	if got := tracker.cacheToken(); got != "" {
+		t.Errorf("cache = %q, want empty", got)
+	}
 	tracker.Close()
 }

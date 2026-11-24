@@ -137,8 +137,10 @@ label. Discord user IDs, usernames, guild IDs, lock IDs, profiles, rules, kinks,
 and stored codes are never sent, so statistics cannot be tied to a member.
 
 Statistics are best effort: events are queued and posted in the background, and
-a slow or unavailable Umami instance never delays or fails an interaction.
-Local runs stay out of production statistics when the two variables are empty.
+a slow or unavailable Umami instance never delays or fails an interaction. Local
+runs stay out of production statistics when the two variables are empty. Umami
+drops traffic it flags as bots, so the client sends a browser-shaped user agent
+with a `Locksmith/1` suffix.
 
 ## Development
 

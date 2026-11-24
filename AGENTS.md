@@ -13,6 +13,9 @@
   analytics so we can see usage. `Bot.handleInteraction` tracks them centrally,
   so register handlers through `AddCommand`, `AddModal`, or `AddComponent` and
   keep interaction labels free of IDs or user content.
+- Umami silently drops events whose user agent it flags as a bot. The analytics
+  client sends a browser-shaped user agent with a `Locksmith/1` suffix; do not
+  simplify it to a bare token.
 
 ## Time and dates
 
