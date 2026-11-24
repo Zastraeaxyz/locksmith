@@ -260,6 +260,20 @@ func UserID(i *discordgo.InteractionCreate) string {
 	return ""
 }
 
+// Username returns the Discord username behind an interaction.
+func Username(i *discordgo.InteractionCreate) string {
+	if i == nil {
+		return ""
+	}
+	if i.Member != nil && i.Member.User != nil {
+		return i.Member.User.Username
+	}
+	if i.User != nil {
+		return i.User.Username
+	}
+	return ""
+}
+
 // Defer acknowledges an interaction and buys three seconds of headroom for
 // API calls. A private reply is ephemeral.
 func Defer(s *discordgo.Session, i *discordgo.InteractionCreate, ephemeral bool) error {
@@ -293,6 +307,43 @@ func Reply(s *discordgo.Session, i *discordgo.InteractionCreate, content string,
 // ReplyEphemeral answers an interaction privately.
 func ReplyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
 	return Reply(s, i, content, true)
+}
+
+// ReplyChunks answers an interaction, splitting long text across follow-up
+// messages. allowedMentions is applied to every chunk.
+func ReplyChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool, allowedMentions *discordgo.MessageAllowedMentions) error {
+	chunks := chunk(text, 1900)
+	if len(chunks) == 0 {
+		chunks = []string{""}
+	}
+
+	data := &discordgo.InteractionResponseData{
+		Content:         chunks[0],
+		AllowedMentions: allowedMentions,
+	}
+	if ephemeral {
+		data.Flags = discordgo.MessageFlagsEphemeral
+	}
+	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: data,
+	}); err != nil {
+		return err
+	}
+
+	for _, part := range chunks[1:] {
+		params := &discordgo.WebhookParams{
+			Content:         part,
+			AllowedMentions: allowedMentions,
+		}
+		if ephemeral {
+			params.Flags = discordgo.MessageFlagsEphemeral
+		}
+		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // ReplyEmbed answers an interaction with an optional embed and component row.

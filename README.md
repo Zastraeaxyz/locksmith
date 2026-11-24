@@ -41,6 +41,10 @@ public embed with the user-install button and a link to this repository.
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
 | `/lock notify [enabled]` | Turns draw notifications on (default) or off |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply |
+| `/profile view [user]` | Shares a member's markdown profile in the chat |
+| `/profile edit` | Opens a prefilled modal to set your profile |
+| `/rules view [user]` | Shares a member's personal rules of play |
+| `/rules edit` | Opens a prefilled modal to set your rules |
 | `/locksmith` | Posts a short overview with the recommended user-install link and a link to this repository |
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
@@ -78,6 +82,21 @@ that server so updates there are immediate.
 In a DM only the lockee can press the draw buttons because the keyholder
 cannot see the DM. In a group DM or a server, the keyholder can see and press
 them.
+
+## Profiles and rules
+
+`/profile` and `/rules` are Locksmith documents, separate from ChastiSafe.
+Each member can keep one profile and one rules-of-play document as plain
+markdown.
+
+- `/profile view [user]` and `/rules view [user]` post the document publicly.
+- `/profile edit` and `/rules edit` open a private modal prefilled with the
+  current markdown. Submitting an empty modal clears the document.
+- Documents are limited to 4000 characters, which is Discord's modal limit.
+- Mentions in a document are suppressed, so `@everyone` cannot ping.
+- `user` accepts a Discord user ID, a ChastiSafe username such as `zastraea`
+  or `zastraea#0`, or the Discord handle saved when the document was last
+  edited. ChastiSafe usernames are tried first.
 
 ## Configuration
 

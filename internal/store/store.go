@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 3
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -40,6 +40,21 @@ type Notification struct {
 	LastNotifiedAt time.Time
 	NextCheckAt    time.Time
 	CreatedAt      time.Time
+}
+
+// Document kinds stored in user_documents.
+const (
+	DocumentProfile = "profile"
+	DocumentRules   = "rules"
+)
+
+// UserDocument is one member's shared markdown document.
+type UserDocument struct {
+	DiscordUserID string
+	Kind          string
+	Handle        string
+	Content       string
+	UpdatedAt     time.Time
 }
 
 // Open opens the SQLite database, creating its directory if needed, and
@@ -126,6 +141,25 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	if version < 2 {
 		if _, err := tx.ExecContext(ctx,
 			`ALTER TABLE notifications ADD COLUMN last_picks INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+
+	if version < 3 {
+		if _, err := tx.ExecContext(ctx, `
+			CREATE TABLE IF NOT EXISTS user_documents (
+				discord_user_id TEXT NOT NULL,
+				kind            TEXT NOT NULL,
+				handle          TEXT NOT NULL DEFAULT '',
+				content         TEXT NOT NULL,
+				updated_at      INTEGER NOT NULL DEFAULT (unixepoch()),
+				PRIMARY KEY (discord_user_id, kind)
+			)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			CREATE INDEX IF NOT EXISTS idx_user_documents_handle
+			ON user_documents(kind, handle)`); err != nil {
 			return err
 		}
 	}
@@ -274,4 +308,99 @@ func scanNotification(row scanner) (*Notification, error) {
 	n.NextCheckAt = time.Unix(nextCheck, 0).UTC()
 	n.CreatedAt = time.Unix(created, 0).UTC()
 	return &n, nil
+}
+
+// SaveDocument inserts or replaces a member's markdown document.
+func (s *Store) SaveDocument(ctx context.Context, doc *UserDocument) error {
+	if doc == nil {
+		return errors.New("store: document is nil")
+	}
+	if doc.Kind != DocumentProfile && doc.Kind != DocumentRules {
+		return fmt.Errorf("store: unknown document kind %q", doc.Kind)
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO user_documents (discord_user_id, kind, handle, content, updated_at)
+		VALUES (?, ?, ?, ?, unixepoch())
+		ON CONFLICT(discord_user_id, kind) DO UPDATE SET
+			handle = excluded.handle,
+			content = excluded.content,
+			updated_at = unixepoch()`,
+		doc.DiscordUserID, doc.Kind, doc.Handle, doc.Content,
+	)
+	return err
+}
+
+// Document returns a member's document, or (nil, nil) when it is not set.
+func (s *Store) Document(ctx context.Context, userID, kind string) (*UserDocument, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT discord_user_id, kind, handle, content, updated_at
+		FROM user_documents
+		WHERE discord_user_id = ? AND kind = ?`, userID, kind)
+
+	var (
+		doc     UserDocument
+		updated int64
+	)
+	err := row.Scan(&doc.DiscordUserID, &doc.Kind, &doc.Handle, &doc.Content, &updated)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	doc.UpdatedAt = time.Unix(updated, 0).UTC()
+	return &doc, nil
+}
+
+// DeleteDocument removes a member's document. Deleting a missing row is not an
+// error.
+func (s *Store) DeleteDocument(ctx context.Context, userID, kind string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM user_documents WHERE discord_user_id = ? AND kind = ?`, userID, kind)
+	return err
+}
+
+// UpdateHandle refreshes the stored Discord handle for a member's documents.
+func (s *Store) UpdateHandle(ctx context.Context, userID, handle string) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE user_documents SET handle = ? WHERE discord_user_id = ?`, handle, userID)
+	return err
+}
+
+// UserByChastiSafeName resolves a ChastiSafe username without its
+// discriminator to a Discord user ID.
+func (s *Store) UserByChastiSafeName(ctx context.Context, name string) (string, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT discord_user_id FROM credentials
+		WHERE lower(chastisafe_user) = lower(?)
+		   OR lower(chastisafe_user) LIKE lower(?) || '#%'
+		LIMIT 1`, name, name)
+
+	var id string
+	err := row.Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
+}
+
+// UserByHandle resolves a stored Discord handle to a Discord user ID.
+func (s *Store) UserByHandle(ctx context.Context, handle string) (string, bool, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT discord_user_id FROM user_documents
+		WHERE handle = ? AND kind IN (?, ?)
+		LIMIT 1`, handle, DocumentProfile, DocumentRules)
+
+	var id string
+	err := row.Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
 }

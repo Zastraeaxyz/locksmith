@@ -116,3 +116,113 @@ func TestNotificationDue(t *testing.T) {
 		t.Fatalf("notification still present: %+v", got)
 	}
 }
+
+func TestUserDocumentRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	profile := &UserDocument{
+		DiscordUserID: "user-1",
+		Kind:          DocumentProfile,
+		Handle:        "zastraea",
+		Content:       "hello profile",
+	}
+	if err := st.SaveDocument(ctx, profile); err != nil {
+		t.Fatalf("SaveDocument: %v", err)
+	}
+
+	got, err := st.Document(ctx, "user-1", DocumentProfile)
+	if err != nil {
+		t.Fatalf("Document: %v", err)
+	}
+	if got == nil || got.Content != "hello profile" || got.Handle != "zastraea" {
+		t.Fatalf("got %+v", got)
+	}
+
+	rules := &UserDocument{
+		DiscordUserID: "user-1",
+		Kind:          DocumentRules,
+		Handle:        "zastraea",
+		Content:       "rules here",
+	}
+	if err := st.SaveDocument(ctx, rules); err != nil {
+		t.Fatalf("SaveDocument rules: %v", err)
+	}
+	profileStill, err := st.Document(ctx, "user-1", DocumentProfile)
+	if err != nil {
+		t.Fatalf("Document profile: %v", err)
+	}
+	if profileStill == nil || profileStill.Content != "hello profile" {
+		t.Fatalf("profile was overwritten: %+v", profileStill)
+	}
+
+	if err := st.UpdateHandle(ctx, "user-1", "newhandle"); err != nil {
+		t.Fatalf("UpdateHandle: %v", err)
+	}
+	got, err = st.Document(ctx, "user-1", DocumentProfile)
+	if err != nil {
+		t.Fatalf("Document after handle update: %v", err)
+	}
+	if got == nil || got.Handle != "newhandle" {
+		t.Fatalf("handle = %+v", got)
+	}
+
+	if err := st.DeleteDocument(ctx, "user-1", DocumentProfile); err != nil {
+		t.Fatalf("DeleteDocument: %v", err)
+	}
+	gone, err := st.Document(ctx, "user-1", DocumentProfile)
+	if err != nil {
+		t.Fatalf("Document after delete: %v", err)
+	}
+	if gone != nil {
+		t.Fatalf("profile still present: %+v", gone)
+	}
+	stillRules, err := st.Document(ctx, "user-1", DocumentRules)
+	if err != nil {
+		t.Fatalf("Document rules after profile delete: %v", err)
+	}
+	if stillRules == nil || stillRules.Content != "rules here" {
+		t.Fatalf("rules should remain: %+v", stillRules)
+	}
+}
+
+func TestResolveDocumentUser(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	if err := st.SaveCredential(ctx, &Credential{
+		DiscordUserID:  "user-1",
+		ChastiSafeID:   "1574588415783997481",
+		ChastiSafeUser: "zastraea#0",
+		Secret:         []byte("sealed"),
+	}); err != nil {
+		t.Fatalf("SaveCredential: %v", err)
+	}
+	if err := st.SaveDocument(ctx, &UserDocument{
+		DiscordUserID: "user-2",
+		Kind:          DocumentProfile,
+		Handle:        "other",
+		Content:       "x",
+	}); err != nil {
+		t.Fatalf("SaveDocument: %v", err)
+	}
+
+	id, ok, err := st.UserByChastiSafeName(ctx, "zastraea")
+	if err != nil || !ok || id != "user-1" {
+		t.Fatalf("UserByChastiSafeName = %q, %v, %v", id, ok, err)
+	}
+	id, ok, err = st.UserByChastiSafeName(ctx, "ZASTRAEA")
+	if err != nil || !ok || id != "user-1" {
+		t.Fatalf("case-insensitive lookup = %q, %v, %v", id, ok, err)
+	}
+	id, ok, err = st.UserByHandle(ctx, "other")
+	if err != nil || !ok || id != "user-2" {
+		t.Fatalf("UserByHandle = %q, %v, %v", id, ok, err)
+	}
+	if _, ok, err := st.UserByChastiSafeName(ctx, "nobody"); err != nil || ok {
+		t.Fatalf("unknown ChastiSafe name = %v, %v", ok, err)
+	}
+	if _, ok, err := st.UserByHandle(ctx, "nobody"); err != nil || ok {
+		t.Fatalf("unknown handle = %v, %v", ok, err)
+	}
+}
