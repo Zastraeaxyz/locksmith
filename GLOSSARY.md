@@ -95,9 +95,11 @@ link alone is enough to view a template; the passcode gates loading only.
 _Avoid_: Lock passcode, load code, password
 
 **Lock code**:
-The code the lockee sets on the physical device and gives to ChastiSafe at load
-time. ChastiSafe withholds it during the lock and reveals it when the lock is
-done; Locksmith never displays it.
+The code the lockee sets on the physical device. The length and character set
+come from the account's ChastiSafe code settings, and Locksmith generates it
+with no repeated characters so the lockee cannot choose a code they would
+remember. Locksmith shows it once in the private load reply, then never again.
+ChastiSafe withholds it during the lock and reveals it when the lock is done.
 _Avoid_: Device code, combination, unlock code
 
 ### Watching a lock

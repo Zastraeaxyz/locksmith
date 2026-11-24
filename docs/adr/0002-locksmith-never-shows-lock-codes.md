@@ -11,3 +11,8 @@ ChastiSafe app is the only place a member sees it.
 `/lock log` redacts the code on a hygiene unlock and says so. `/history` ignores
 `RecentLock.LockCode` even though the API returns it. Do not "fix" either by
 adding the code to a reply.
+
+The one exception is the code Locksmith generates at load time. See
+[0003-locksmith-generates-lock-codes.md](0003-locksmith-generates-lock-codes.md):
+it is shown once in the private load reply so the lockee can set the device, and
+never after that.

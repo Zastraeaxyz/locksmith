@@ -28,8 +28,8 @@ member:
 https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=1&scope=applications.commands
 ```
 
-The easiest way to share either install path is `/locksmith`: it posts a short
-public embed with the user-install button and a link to this repository.
+The easiest way to share either install path is `/help`: it posts the guide, the
+user-install button, and a link to this repository.
 
 ## Commands
 
@@ -38,11 +38,11 @@ public embed with the user-install button and a link to this repository.
 | `/login` | Opens a private modal and stores your ChastiSafe developer code, encrypted |
 | `/logout` | Removes your saved code and draw subscription |
 | `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
-| `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; asks privately for the lock code and keyholder passcode |
+| `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; generates the device code from your ChastiSafe code settings and asks privately for the keyholder passcode |
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith and Open in ChastiSafe buttons; `ref` suggests your own templates |
-| `/lock notify [enabled]` | Turns draw and check-in notifications on (default) or off |
+| `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
@@ -51,7 +51,7 @@ public embed with the user-install button and a link to this repository.
 | `/rules edit` | Opens a prefilled modal to set your rules |
 | `/kinks view [user]` | Shares a member's kinks document |
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
-| `/locksmith` | Posts a short overview with the recommended user-install link and a link to this repository |
+| `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a
 check-in, `/lock share` lists your own templates, and `/lock log` lists active
@@ -68,29 +68,36 @@ Keyholders create and edit lock templates on chastisafe.com, then share one with
 timer, check-ins, allowed purposes, and a note when a passcode is required. It
 has two buttons:
 
-- **Load with Locksmith** opens a private form for the lock code and an optional
-  keyholder passcode, then starts the lock for the member who pressed it. Draws,
-  reminders, and logs then work in Discord. A member who does not have Locksmith
-  gets a private prompt with an install button instead.
+- **Load with Locksmith** opens a private form for the optional keyholder
+  passcode, then starts the lock for the member who pressed it. Locksmith
+  generates the device code from the member's ChastiSafe code settings, so the
+  lockee cannot pick a code they would remember, and shows it once in the
+  private reply so they can set the device. Draws, reminders, and logs then work
+  in Discord. A member who does not have Locksmith gets a private prompt with an
+  install button instead.
 - **Open in ChastiSafe** opens `https://chastisafe.com/#l/<template>` so a
   lockee can load the lock without the bot.
 
 A lockee can also run `/lock load link:<share link>` with a ChastiSafe share
-link or a bare template ID. The form suggests a random four digit code. Set the
-device to that code, or replace it with your own, then submit.
+link or a bare template ID. The form asks only for the keyholder passcode when
+the template has one. The reply shows the generated device code once, so the
+lockee can set the device and then forget it.
 
 Templates that use a keyholder passcode are supported: enter the passcode in the
 form. The share post marks it as required so the lockee knows to ask for it.
 
 ## Notifications
 
-`/lock notify` records the member and the lock to watch: their active card lock
-when they have one, otherwise a lock with a check-in schedule. The scheduler
-checks each subscription against the lock's draw schedule and sends a DM when
-one or more draws become available. The DM lists draws available, cards left,
-greens needed, and the next draw time. After a notification the bot waits for
-the member to draw, then schedules the next check from the lock's `wait`
-value, so it does not poll ChastiSafe constantly.
+`/lock load` subscribes the member automatically, so a lock loaded from Discord
+is watched without another command. `/lock notify` records the subscription for
+locks loaded in the ChastiSafe app: their active card lock when they have one,
+otherwise a lock with a check-in schedule. A member watches one lock at a time,
+and a new subscription replaces the old one. The scheduler checks each
+subscription against the lock's draw schedule and sends a DM when one or more
+draws become available. The DM lists draws available, cards left, greens needed,
+and the next draw time. After a notification the bot waits for the member to
+draw, then schedules the next check from the lock's `wait` value, so it does not
+poll ChastiSafe constantly.
 
 The same subscription also watches the lock's check-in schedule. The bot sends a
 first reminder `CHECKIN_LEAD_TIME` before the check-in is due, an unskippable

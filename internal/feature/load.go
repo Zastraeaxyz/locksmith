@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"math/big"
 	"net/url"
 	"strings"
 	"time"
@@ -16,11 +17,18 @@ import (
 	"locksmith/internal/bot"
 )
 
-const loadNamespace = "load"
+const (
+	loadNamespace = "load"
 
-// handleLockLoad parses a share link and opens the private load form. The lock
-// code and keyholder passcode are entered in the modal so they never appear in
-// the channel.
+	// defaultLockCodeDigits is used when the account has no code length set.
+	defaultLockCodeDigits = 4
+	// maxLockCodeDigits bounds a code generated from account settings.
+	maxLockCodeDigits = 32
+)
+
+// handleLockLoad parses a share link and opens the private load form. The
+// keyholder passcode is entered in the modal so it never appears in the
+// channel, and the lock code is generated rather than chosen.
 func (f *Feature) handleLockLoad(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, link string) error {
 	userID := bot.UserID(i)
 	if userID == "" {
@@ -39,43 +47,39 @@ func (f *Feature) handleLockLoad(ctx context.Context, s *discordgo.Session, i *d
 	return openLoadModal(s, i, templateID)
 }
 
-// openLoadModal asks for the lock code and an optional keyholder passcode.
+// openLoadModal asks for an optional keyholder passcode. The lock code is
+// generated from the member's ChastiSafe code settings, so it never appears as
+// an editable field they could replace with one they would remember.
 func openLoadModal(s *discordgo.Session, i *discordgo.InteractionCreate, templateID cs.ID) error {
 	if s == nil || i == nil {
 		return errors.New("load: missing interaction")
 	}
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
 		Type: discordgo.InteractionResponseModal,
-		Data: &discordgo.InteractionResponseData{
-			Title:    "Load a lock",
-			CustomID: loadNamespace + ":code:" + templateID.String(),
-			Components: []discordgo.MessageComponent{
-				&discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-					&discordgo.TextInput{
-						CustomID:    "code",
-						Label:       "Lock code",
-						Style:       discordgo.TextInputShort,
-						Placeholder: "Set your device to this code, or enter your own",
-						Value:       newLockCode(),
-						MinLength:   1,
-						MaxLength:   64,
-						Required:    true,
-					},
-				}},
-				&discordgo.ActionsRow{Components: []discordgo.MessageComponent{
-					&discordgo.TextInput{
-						CustomID:    "passcode",
-						Label:       "Keyholder passcode (only if you have one)",
-						Style:       discordgo.TextInputShort,
-						Placeholder: "Leave blank when the lock has no passcode",
-						MinLength:   0,
-						MaxLength:   64,
-						Required:    false,
-					},
-				}},
-			},
-		},
+		Data: loadModalData(templateID),
 	})
+}
+
+// loadModalData is the private load form. The keyholder passcode is the only
+// input; the lock code is not the member's to choose.
+func loadModalData(templateID cs.ID) *discordgo.InteractionResponseData {
+	return &discordgo.InteractionResponseData{
+		Title:    "Load a lock",
+		CustomID: loadNamespace + ":form:" + templateID.String(),
+		Components: []discordgo.MessageComponent{
+			&discordgo.ActionsRow{Components: []discordgo.MessageComponent{
+				&discordgo.TextInput{
+					CustomID:    "passcode",
+					Label:       "Keyholder passcode (only if you have one)",
+					Style:       discordgo.TextInputShort,
+					Placeholder: "Leave blank when the lock has no passcode",
+					MinLength:   0,
+					MaxLength:   64,
+					Required:    false,
+				},
+			}},
+		},
+	}
 }
 
 // handleLoadModal loads the shared template for the member who submitted the
@@ -87,16 +91,11 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	parts := strings.Split(i.ModalSubmitData().CustomID, ":")
-	if len(parts) != 3 || parts[1] != "code" || strings.TrimSpace(parts[2]) == "" {
+	if len(parts) != 3 || parts[1] != "form" || strings.TrimSpace(parts[2]) == "" {
 		return bot.ReplyEphemeral(s, i, "This load form is out of date. Run `/lock load` again.")
 	}
 	templateID := cs.ID(parts[2])
 
-	code := strings.TrimSpace(modalValue(i.ModalSubmitData().Components, "code"))
-	if code == "" {
-		f.track("load failed: empty code")
-		return bot.ReplyEphemeral(s, i, "Enter the code you set on your device.")
-	}
 	var passcode *string
 	if value := strings.TrimSpace(modalValue(i.ModalSubmitData().Components, "passcode")); value != "" {
 		passcode = &value
@@ -123,6 +122,19 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 		return sendEphemeral(s, i, "That lock is disabled, so it cannot be loaded. Ask your keyholder to enable it.")
 	}
 
+	profile, err := client.Profile(ctx)
+	if err != nil {
+		f.track("load failed: " + loadFailureReason(err))
+		f.log.Info("reading code settings failed", "user_id", userID, "err", err)
+		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
+	}
+	code, err := generateLockCode(profile.Digits, profile.CharacterSet)
+	if err != nil {
+		f.track("load failed: code generation")
+		f.log.Warn("generating a lock code", "user_id", userID, "err", err)
+		return sendEphemeral(s, i, "I could not generate a lock code. Run `/lock load` again.")
+	}
+
 	locks, err := client.Load(ctx, cs.LoadRequest{
 		TemplateID: templateID,
 		Code:       code,
@@ -139,6 +151,12 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 		return sendEphemeral(s, i, "ChastiSafe did not return a lock. Try again, or use the ChastiSafe link.")
 	}
 
+	watched := true
+	if err := f.watchLock(ctx, userID, &locks[0]); err != nil {
+		watched = false
+		f.log.Warn("subscribing after load", "user_id", userID, "lock_id", locks[0].ID.String(), "err", err)
+	}
+
 	f.track("load success")
 	f.forgetLockAutocomplete(userID)
 	f.log.Info("lock loaded",
@@ -146,7 +164,7 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 		"template_id", templateID.String(),
 		"lock_id", locks[0].ID.String(),
 	)
-	return sendEphemeral(s, i, loadResultText(&locks[0], cred.ChastiSafeID, f.now()))
+	return sendEphemeral(s, i, loadResultText(&locks[0], cred.ChastiSafeID, code, watched, f.now()))
 }
 
 // parseTemplateRef accepts a ChastiSafe share link, a template link, or a bare
@@ -204,18 +222,65 @@ func chastisafeShareURL(baseURL string, id cs.ID) string {
 	return origin + "/#l/" + id.String()
 }
 
-// newLockCode suggests a four digit code for the member to set on their device.
-// They can replace it in the form.
-func newLockCode() string {
-	const digits = "0123456789"
-	buf := make([]byte, 4)
-	if _, err := rand.Read(buf); err != nil {
-		return "1234"
+// generateLockCode builds the code the member sets on their device, using the
+// length and character set from their ChastiSafe account settings. Each
+// character appears at most once, so the code has no pattern the member could
+// pick and then remember.
+func generateLockCode(digits int, characterSet string) (string, error) {
+	alphabet := codeAlphabet(characterSet)
+	if digits <= 0 {
+		digits = defaultLockCodeDigits
 	}
-	for idx := range buf {
-		buf[idx] = digits[int(buf[idx])%len(digits)]
+	if digits > maxLockCodeDigits {
+		digits = maxLockCodeDigits
 	}
-	return string(buf)
+
+	out := make([]byte, 0, digits)
+	remaining := []byte(alphabet)
+	for len(out) < digits && len(remaining) > 0 {
+		pick, err := randIndex(len(remaining))
+		if err != nil {
+			return "", err
+		}
+		out = append(out, remaining[pick])
+		remaining = append(remaining[:pick], remaining[pick+1:]...)
+	}
+	// A code longer than the character set cannot avoid repeats. Top up from
+	// the full set rather than shortening the code the device expects.
+	for len(out) < digits {
+		pick, err := randIndex(len(alphabet))
+		if err != nil {
+			return "", err
+		}
+		out = append(out, alphabet[pick])
+	}
+	return string(out), nil
+}
+
+// codeAlphabet maps the account's ChastiSafe character set to the characters a
+// device code may use. Unknown values fall back to digits, which every device
+// accepts.
+func codeAlphabet(characterSet string) string {
+	const (
+		digits  = "0123456789"
+		letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+	)
+	set := strings.ToUpper(strings.TrimSpace(characterSet))
+	if strings.Contains(set, "ALPHA") || strings.Contains(set, "LETTER") {
+		if strings.Contains(set, "NUM") {
+			return digits + letters
+		}
+		return letters
+	}
+	return digits
+}
+
+func randIndex(n int) (int, error) {
+	value, err := rand.Int(rand.Reader, big.NewInt(int64(n)))
+	if err != nil {
+		return 0, fmt.Errorf("reading random bytes: %w", err)
+	}
+	return int(value.Int64()), nil
 }
 
 // defaultPurpose picks the purpose the website would preselect: chastity when
@@ -237,13 +302,19 @@ func defaultPurpose(template *cs.Template) cs.Purpose {
 	return cs.PurposeChastity
 }
 
-func loadResultText(lock *cs.LoadedLock, chastisafeID string, now time.Time) string {
+// loadResultText is the private reply after a successful load. It is the only
+// place Locksmith shows the generated code, so the member can set the device
+// and then forget it.
+func loadResultText(lock *cs.LoadedLock, chastisafeID, code string, watched bool, now time.Time) string {
 	if lock == nil {
 		return "ChastiSafe did not return a lock."
 	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, ":white_check_mark: Loaded **%s**.\n\n", lockName(lock))
+	if code != "" {
+		fmt.Fprintf(&b, "**Set your device to code `%s`, then forget it.** ChastiSafe keeps it for when the lock opens.\n\n", code)
+	}
 	view := cs.LockView{Lock: *lock, Role: cs.RoleLockee}
 	b.WriteString(renderLockStatus(&view, statusOptions{
 		viewerID:    chastisafeID,
@@ -255,14 +326,20 @@ func loadResultText(lock *cs.LoadedLock, chastisafeID string, now time.Time) str
 
 	switch {
 	case lock.IsCardLock():
-		b.WriteString("Next: run `/lock draw` to open the draw board, or `/lock notify` for reminders.")
+		b.WriteString("Next: run `/lock draw` to open the draw board.")
 	case lock.IsTimerLock():
-		b.WriteString("Next: run `/lock status` to watch the timer, or `/lock notify` for reminders.")
+		b.WriteString("Next: run `/lock status` to watch the timer.")
 	default:
-		b.WriteString("Next: run `/lock status` to watch it, or `/lock notify` for reminders.")
+		b.WriteString("Next: run `/lock status` to watch it.")
 	}
 	if lock.CheckInPeriod > 0 {
 		b.WriteString(" Check in with `/lock checkin` when one is due.")
+	}
+	b.WriteString("\n")
+	if watched {
+		b.WriteString("Reminders are on: I will DM you when a draw is ready or a check-in is due.")
+	} else {
+		b.WriteString("Reminders are off: run `/lock notify` to turn them on.")
 	}
 	return b.String()
 }
