@@ -39,12 +39,13 @@ user-install button, and a link to this repository.
 | `/logout` | Removes your saved code and draw subscription |
 | `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
 | `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; generates the device code from your ChastiSafe code settings and asks privately for the keyholder passcode |
-| `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
+| `/lock draw` | Opens a public draw board with Draw and Stop while the lock runs, and Open, Put green back, Reset, and Let keyholder decide when it is ready to unlock; only you and your keyholder can press them |
+| `/lock open [ref]` | Opens a ready lock and reveals the device code; the reply is private in servers and a normal message in DMs |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
 | `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
-| `/history [include_test] [include_old] [public]` | Your completed locks, newest first |
+| `/history [include_test] [include_old] [public]` | Your completed locks, newest first, with lock codes in a private reply |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |
 | `/rules view [user]` | Shares a member's personal rules of play |
@@ -54,8 +55,9 @@ user-install button, and a link to this repository.
 | `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a
-check-in, `/lock share` lists your own templates, and `/lock log` lists active
-and previous locks. Typing a name or ID still works.
+check-in, `/lock open` lists ready locks, `/lock share` lists your own templates,
+and `/lock log` lists active and previous locks. Typing a name or ID still
+works.
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
 is ephemeral, and the value is never echoed. Discord does not offer masked
@@ -71,17 +73,30 @@ has two buttons:
 - **Load with Locksmith** opens a private form for the optional keyholder
   passcode, then starts the lock for the member who pressed it. Locksmith
   generates the device code from the member's ChastiSafe code settings, so the
-  lockee cannot pick a code they would remember, and shows it once in the
-  private reply so they can set the device. Draws, reminders, and logs then work
-  in Discord. A member who does not have Locksmith gets a private prompt with an
-  install button instead.
+  lockee cannot pick a code they would remember, and shows it in the private
+  reply so they can set the device. Draws, reminders, and logs then work in
+  Discord. ChastiSafe withholds the code while the lock runs, and Locksmith can
+  show it again when the lock is done. A member who does not have Locksmith gets
+  a private prompt with an install button instead.
 - **Open in ChastiSafe** opens `https://chastisafe.com/#l/<template>` so a
   lockee can load the lock without the bot.
 
 A lockee can also run `/lock load link:<share link>` with a ChastiSafe share
 link or a bare template ID. The form asks only for the keyholder passcode when
-the template has one. The reply shows the generated device code once, so the
-lockee can set the device and then forget it.
+the template has one. The reply shows the generated device code, so the lockee
+can set the device and then forget it.
+
+## Opening a lock
+
+A card lock is ready to unlock when nothing is left to draw, and a timer lock
+when its timer runs out. `/lock open [ref]` opens a ready lock and reveals the
+device code again. `ref` suggests ready locks by name or ID.
+
+The reply is a private message in servers. In a bot DM or group DM it is a
+normal message, because the conversation is already limited to the member and
+their keyholder. Running `/history` privately shows the code alongside any
+completed lock, so a missed open reply is recoverable. A public `/history` reply
+never includes codes.
 
 Templates that use a keyholder passcode are supported: enter the passcode in the
 form. The share post marks it as required so the lockee knows to ask for it.
@@ -116,19 +131,27 @@ off, `/lock checkin` records the same check-in on demand.
 
 `/lock log` shows pick events from the last five minutes by default. Add
 `full:true` for every event, `ref:` to pick a running or previous lock, and
-`public:true` to post the reply in the channel.
+`public:true` to post the reply in the channel. A hygiene unlock's code is
+redacted there, because a log reply can be public and permanent.
 
 `/history` lists your completed locks, newest first, with duration, unlock
-reason, keyholder, and rating. `TEST` locks and locks older than a year are
-hidden by default; add `include_test:true` or `include_old:true` to bring them
-back, and `public:true` to post the reply in the channel. `/lock status` also
-accepts `public:true`.
+reason, keyholder, rating, and the lock code when the reply is private. `TEST`
+locks and locks older than a year are hidden by default; add
+`include_test:true` or `include_old:true` to bring them back, and `public:true`
+to post the reply in the channel without codes. `/lock status` also accepts
+`public:true`.
 
 `/lock draw` posts a public draw board so the channel can watch the session.
-Draw and Stop are available to the lockee and their keyholder; anyone else
-gets a private refusal. The board keeps a running log of the cards drawn, a
-running total, and a countdown of the cards left in the deck. The buttons are
-removed when the session stops or the draws run out.
+While the lock runs, the board has Draw and Stop. When the lock is ready to
+unlock, the board has Open, Put green back, Reset, and Let keyholder decide.
+Open reveals the code privately in a server and normally in a DM. Put green back
+returns the last green card to the deck so drawing continues. Reset asks for
+typed confirmation and restarts the lock from the beginning. Let keyholder
+decide sends the keyholder ChastiSafe's decision prompts; a self lock does not
+show that button. The actions are available to the lockee and their keyholder;
+anyone else gets a private refusal. The board keeps a running log of the cards
+drawn, a running total, and a countdown of the cards left in the deck. The
+buttons are removed when the session stops or the draws run out.
 
 ## Contexts
 

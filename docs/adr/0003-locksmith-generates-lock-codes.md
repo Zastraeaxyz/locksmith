@@ -7,9 +7,10 @@ each character at most once so the result has no pattern to hold on to. The
 private load reply shows the generated code once, so the lockee can set the
 device and then forget it. The member cannot edit or replace it.
 
-[ADR 0002](0002-locksmith-never-shows-lock-codes.md) still holds after that
-moment: the code is never logged, stored, sent to analytics, or shown again in
-`/lock status`, `/lock log`, or `/history`.
+The code is never logged, stored, or sent to analytics. ADR 0002 kept it out of
+every later reply; [ADR 0004](0004-lock-codes-in-private-replies.md) supersedes
+that for two private surfaces: `/lock open` and a private `/history` reply.
+`/lock status`, `/lock log`, and public replies remain code-free.
 
 ## Considered options
 

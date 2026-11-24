@@ -418,12 +418,26 @@ func Edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) 
 // EditMessage replaces a deferred reply with an optional embed and component
 // row. A non-nil empty components slice removes any existing components.
 func EditMessage(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
-	return EditMessageAllowed(s, i, content, embeds, components, nil)
+	_, err := EditMessageGet(s, i, content, embeds, components)
+	return err
+}
+
+// EditMessageGet replaces a deferred reply like EditMessage and returns the
+// edited message, so a caller can keep its ID for a later edit.
+func EditMessageGet(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent) (*discordgo.Message, error) {
+	return EditMessageGetAllowed(s, i, content, embeds, components, nil)
 }
 
 // EditMessageAllowed replaces a deferred reply and sets explicit allowed
 // mentions, so user-authored embed text cannot ping the channel.
 func EditMessageAllowed(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, allowedMentions *discordgo.MessageAllowedMentions) error {
+	_, err := EditMessageGetAllowed(s, i, content, embeds, components, allowedMentions)
+	return err
+}
+
+// EditMessageGetAllowed replaces a deferred reply with explicit allowed
+// mentions and returns the edited message.
+func EditMessageGetAllowed(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, allowedMentions *discordgo.MessageAllowedMentions) (*discordgo.Message, error) {
 	edit := &discordgo.WebhookEdit{AllowedMentions: allowedMentions}
 	if content != "" {
 		edit.Content = &content
@@ -435,8 +449,7 @@ func EditMessageAllowed(s *discordgo.Session, i *discordgo.InteractionCreate, co
 		components = []discordgo.MessageComponent{}
 	}
 	edit.Components = &components
-	_, err := s.InteractionResponseEdit(i.Interaction, edit)
-	return err
+	return s.InteractionResponseEdit(i.Interaction, edit)
 }
 
 // DeferUpdate acknowledges a component interaction in place.
@@ -451,14 +464,21 @@ func DeleteResponse(s *discordgo.Session, i *discordgo.InteractionCreate) error 
 	return s.InteractionResponseDelete(i.Interaction)
 }
 
+// ReplyFollowup sends a follow-up to an interaction that has already been
+// acknowledged. An ephemeral follow-up is private.
+func ReplyFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) error {
+	params := &discordgo.WebhookParams{Content: content}
+	if ephemeral {
+		params.Flags = discordgo.MessageFlagsEphemeral
+	}
+	_, err := s.FollowupMessageCreate(i.Interaction, true, params)
+	return err
+}
+
 // ReplyEphemeralFollowup sends a private follow-up to an interaction that has
 // already been acknowledged.
 func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
-		Content: content,
-		Flags:   discordgo.MessageFlagsEphemeral,
-	})
-	return err
+	return ReplyFollowup(s, i, content, true)
 }
 
 // ClearComponents removes the components from a message the bot posted.

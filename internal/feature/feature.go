@@ -108,6 +108,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(kinksCommand(), f.handleKinksCommand)
 	b.AddModal(modalNamespace, f.handleLoginModal)
 	b.AddModal(loadNamespace, f.handleLoadModal)
+	b.AddModal(resetNamespace, f.handleResetModal)
 	b.AddModal(store.DocumentProfile, f.handleProfileModal)
 	b.AddModal(store.DocumentRules, f.handleRulesModal)
 	b.AddModal(store.DocumentKinks, f.handleKinksModal)

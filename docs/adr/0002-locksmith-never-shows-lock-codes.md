@@ -1,5 +1,7 @@
 # Locksmith never displays a lock code
 
+> Superseded by [ADR 0004](0004-lock-codes-in-private-replies.md).
+
 ChastiSafe reveals a lock's code when the lock is done, and includes it in the
 log for a hygiene unlock, so Locksmith receives the value in `/history` and
 `/lock log`. We still never print it: a Discord reply can be public, permanent,

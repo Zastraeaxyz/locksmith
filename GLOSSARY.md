@@ -104,8 +104,9 @@ _Avoid_: Lock passcode, load code, password
 The code the lockee sets on the physical device. The length and character set
 come from the account's ChastiSafe code settings, and Locksmith generates it
 with no repeated characters so the lockee cannot choose a code they would
-remember. Locksmith shows it once in the private load reply, then never again.
-ChastiSafe withholds it during the lock and reveals it when the lock is done.
+remember. Locksmith shows it in the private load reply. ChastiSafe withholds it
+during the lock and reveals it when the lock is done, so `/lock open` can show
+it again and a private `/history` reply includes it. Public replies never do.
 _Avoid_: Device code, combination, unlock code
 
 ### Watching a lock
@@ -141,8 +142,10 @@ _Avoid_: Level, step
 ### Discord surfaces
 
 **Draw board**:
-The public Discord message where a lock's draws are taken and logged. Only the
-lockee and an external keyholder may press its buttons.
+The public Discord message where a lock's draws are taken and logged. While the
+lock runs it offers Draw and Stop. When the lock is ready to unlock it offers
+Open, Put green back, Reset, and Let keyholder decide. Only the lockee and an
+external keyholder may press its buttons.
 _Avoid_: Draw message, draw panel
 
 **Draw session**:
@@ -156,7 +159,8 @@ the lock's other events.
 _Avoid_: History, draw log
 
 **History**:
-The record of a member's completed locks, newest first, shown by `/history`.
+The record of a member's completed locks, newest first, shown by `/history`. A
+private reply includes lock codes; a public reply never does.
 _Avoid_: Lock log, archive
 
 **Document**:

@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
 
@@ -273,5 +274,74 @@ func TestDrawTargetNewest(t *testing.T) {
 	got := drawTarget(locks, "viewer")
 	if got == nil || got.ID != "new" {
 		t.Fatalf("drawTarget = %+v, want newest card lock", got)
+	}
+}
+
+func drawButtonLabels(components []discordgo.MessageComponent) []string {
+	if len(components) != 1 {
+		return nil
+	}
+	row, ok := components[0].(discordgo.ActionsRow)
+	if !ok {
+		return nil
+	}
+	labels := make([]string, 0, len(row.Components))
+	for _, component := range row.Components {
+		button, ok := component.(discordgo.Button)
+		if !ok {
+			continue
+		}
+		labels = append(labels, button.Label)
+	}
+	return labels
+}
+
+func TestDrawButtonsRunning(t *testing.T) {
+	session := &drawSession{id: "session", keyholderID: "keyholder"}
+	labels := drawButtonLabels(drawButtons(session, &cs.LoadedLock{Type: "card", Picks: 1}))
+	if strings.Join(labels, ",") != "Draw,Stop" {
+		t.Fatalf("running buttons = %v, want Draw and Stop only", labels)
+	}
+}
+
+func TestDrawButtonsReady(t *testing.T) {
+	session := &drawSession{id: "session", keyholderID: "keyholder"}
+	labels := drawButtonLabels(drawButtons(session, &cs.LoadedLock{Type: "card", ReadyToUnlock: true}))
+	want := "Open,Put green back,Reset,Let keyholder decide"
+	if strings.Join(labels, ",") != want {
+		t.Fatalf("ready buttons = %v, want %s", labels, want)
+	}
+}
+
+func TestDrawButtonsReadySelfLockHidesKeyholder(t *testing.T) {
+	session := &drawSession{id: "session"}
+	labels := drawButtonLabels(drawButtons(session, &cs.LoadedLock{Type: "card", ReadyToUnlock: true}))
+	want := "Open,Put green back,Reset"
+	if strings.Join(labels, ",") != want {
+		t.Fatalf("self-lock ready buttons = %v, want %s", labels, want)
+	}
+}
+
+func TestResetConfirmed(t *testing.T) {
+	for _, value := range []string{"YES RESET", "  YES RESET  "} {
+		if !resetConfirmed(value) {
+			t.Errorf("resetConfirmed(%q) = false, want true", value)
+		}
+	}
+	for _, value := range []string{"", "yes reset", "YES", "YES  RESET", "NO"} {
+		if resetConfirmed(value) {
+			t.Errorf("resetConfirmed(%q) = true, want false", value)
+		}
+	}
+}
+
+func TestReadyCardLockSkipsFrozen(t *testing.T) {
+	locks := []cs.LoadedLock{
+		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me"},
+		{ID: "frozen", LockName: "Frozen", Type: "card", ReadyToUnlock: true, FrozenByKeyholder: true, LockeeID: "me"},
+	}
+	got := readyCardLock(locks, "me")
+	if got == nil || got.ID != "ready" {
+		t.Fatalf("readyCardLock = %+v, want the unfrozen ready lock", got)
 	}
 }
