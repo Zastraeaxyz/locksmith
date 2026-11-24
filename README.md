@@ -136,6 +136,11 @@ component, such as `/lock status` or `component draw`. Events carry only that
 label. Discord user IDs, usernames, guild IDs, lock IDs, profiles, rules, kinks,
 and stored codes are never sent, so statistics cannot be tied to a member.
 
+The login funnel is explicit: `/login` counts modal opens, `modal login` counts
+submissions, and the handler reports `login success` or `login failed: <reason>`
+where the reason is one of `rejected`, `not owner`, `unconfigured`,
+`unreachable`, `rate limited`, or `empty code`.
+
 Statistics are best effort: events are queued and posted in the background, and
 a slow or unavailable Umami instance never delays or fails an interaction. Local
 runs stay out of production statistics when the two variables are empty. Umami

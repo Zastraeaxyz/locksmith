@@ -43,6 +43,7 @@ type Options struct {
 type Feature struct {
 	store          *store.Store
 	box            *cryptobox.Box
+	bot            *bot.Bot
 	baseURL        string
 	userAgent      string
 	log            *slog.Logger
@@ -86,6 +87,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	if b == nil {
 		return
 	}
+	f.bot = b
 	b.AddCommand(loginCommand(), f.handleLoginCommand)
 	b.AddCommand(logoutCommand(), f.handleLogoutCommand)
 	b.AddCommand(lockCommand(), f.handleLockCommand)
@@ -238,6 +240,15 @@ func (f *Feature) loginAttemptAllowed(userID string) bool {
 
 func (f *Feature) loginSucceeded(userID string) {
 	f.limiter.reset(userID)
+}
+
+// track records a funnel event. It is a no-op when the feature is not
+// registered with a bot, which keeps unit tests simple.
+func (f *Feature) track(name string) {
+	if f.bot == nil {
+		return
+	}
+	f.bot.Track(name, nil)
 }
 
 // loginLimiter keeps a short failed-attempt window per member.

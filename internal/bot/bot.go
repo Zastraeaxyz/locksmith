@@ -108,6 +108,18 @@ func (b *Bot) SetTracker(t Tracker) {
 	b.tracker = t
 }
 
+// Track records an anonymous usage event. Handlers can call it to record
+// funnel steps that are not interactions, such as a successful login.
+func (b *Bot) Track(name string, data map[string]any) {
+	b.mu.RLock()
+	tracker := b.tracker
+	b.mu.RUnlock()
+	if tracker == nil {
+		return
+	}
+	tracker.Track(name, data)
+}
+
 // Run validates the token, connects the gateway, and blocks until ctx is done.
 func (b *Bot) Run(ctx context.Context) error {
 	me, err := b.Session.User("@me")
@@ -216,7 +228,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
-		b.track(commandLabel(i))
+		b.Track(commandLabel(i), nil)
 		b.run(name, func(ctx context.Context) error { return handler(ctx, s, i) })
 	case discordgo.InteractionModalSubmit:
 		namespace := customIDNamespace(i.ModalSubmitData().CustomID)
@@ -226,7 +238,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
-		b.track("modal " + namespace)
+		b.Track("modal "+namespace, nil)
 		b.run("modal "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
 	case discordgo.InteractionMessageComponent:
 		namespace := customIDNamespace(i.MessageComponentData().CustomID)
@@ -236,7 +248,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
-		b.track("component " + namespace)
+		b.Track("component "+namespace, nil)
 		b.run("component "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
 	}
 }
@@ -253,17 +265,6 @@ func commandLabel(i *discordgo.InteractionCreate) string {
 		}
 	}
 	return "/" + data.Name
-}
-
-// track records an anonymous usage event. Labels only: no IDs or content.
-func (b *Bot) track(name string) {
-	b.mu.RLock()
-	tracker := b.tracker
-	b.mu.RUnlock()
-	if tracker == nil {
-		return
-	}
-	tracker.Track(name, nil)
 }
 
 func (b *Bot) run(label string, fn func(context.Context) error) {

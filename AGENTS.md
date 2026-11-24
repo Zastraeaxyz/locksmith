@@ -16,6 +16,9 @@
 - Umami silently drops events whose user agent it flags as a bot. The analytics
   client sends a browser-shaped user agent with a `Locksmith/1` suffix; do not
   simplify it to a bare token.
+- Record funnel steps that are not interactions, such as `login success` or
+  `login failed: <reason>`, with `Bot.Track` from the handler. Keep the label
+  coarse and free of codes, IDs, or usernames.
 
 ## Time and dates
 

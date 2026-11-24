@@ -112,11 +112,11 @@ func (r *recordingTracker) Track(name string, data map[string]any) {
 
 func TestTrackUsesTracker(t *testing.T) {
 	b := &Bot{}
-	b.track("/login") // nil tracker must not panic
+	b.Track("/login", nil) // nil tracker must not panic
 
 	rec := &recordingTracker{}
 	b.SetTracker(rec)
-	b.track("/lock draw")
+	b.Track("/lock draw", nil)
 
 	if len(rec.names) != 1 || rec.names[0] != "/lock draw" {
 		t.Fatalf("tracked = %v", rec.names)

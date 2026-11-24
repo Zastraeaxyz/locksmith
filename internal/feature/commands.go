@@ -131,11 +131,13 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
 	}
 	if !f.loginAttemptAllowed(userID) {
+		f.track("login failed: rate limited")
 		return bot.ReplyEphemeral(s, i, "Too many login attempts. Wait a few minutes and try again.")
 	}
 
 	code := modalValue(i.ModalSubmitData().Components, "code")
 	if strings.TrimSpace(code) == "" {
+		f.track("login failed: empty code")
 		return bot.ReplyEphemeral(s, i, "The developer code was empty. Run `/login` again.")
 	}
 
@@ -145,15 +147,17 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 
 	identity, err := f.authenticate(ctx, userID, code)
 	if err != nil {
+		reason := loginFailureReason(err)
+		f.track("login failed: " + reason)
 		f.log.Info("login failed", "user_id", userID, "err", err)
-		switch {
-		case errors.Is(err, errNotOwner):
+		switch reason {
+		case "not owner":
 			return sendEphemeral(s, i,
 				"That code belongs to a different ChastiSafe account.\n"+
 					"Link your Discord account in ChastiSafe, then run `/login` again.")
-		case errors.Is(err, cs.ErrUnauthorized):
+		case "rejected":
 			return sendEphemeral(s, i, "ChastiSafe rejected that developer code. Check it and try again.")
-		case errors.Is(err, errNotConfigured):
+		case "unconfigured":
 			return sendEphemeral(s, i, "Locksmith is not configured to store codes.")
 		default:
 			f.log.Warn("login request failed", "user_id", userID, "err", err)
@@ -162,6 +166,7 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	f.loginSucceeded(userID)
+	f.track("login success")
 	f.log.Info("login stored",
 		"user_id", userID,
 		"chastisafe_user", identity.User,
@@ -172,6 +177,21 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 			"Use `/lock status`, `/lock draw`, and `/lock notify`.",
 		identity.User, identity.ID,
 	))
+}
+
+// loginFailureReason buckets a failed login for anonymous analytics. The
+// labels are coarse on purpose: no codes, IDs, or usernames.
+func loginFailureReason(err error) string {
+	switch {
+	case errors.Is(err, errNotOwner):
+		return "not owner"
+	case errors.Is(err, cs.ErrUnauthorized):
+		return "rejected"
+	case errors.Is(err, errNotConfigured):
+		return "unconfigured"
+	default:
+		return "unreachable"
+	}
 }
 
 // handleLogoutCommand removes the caller's stored code.
