@@ -19,11 +19,13 @@ RUN apk add --no-cache ca-certificates tzdata su-exec \
 
 WORKDIR /app
 COPY --from=build /out/locksmith /app/locksmith
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENV DATABASE_PATH=/data/locksmith.db
 ENV PORT=8080
 
 EXPOSE 8080
 
-USER locksmith
-ENTRYPOINT ["/app/locksmith"]
+# Starts as root only to fix volume ownership, then drops to uid 10001.
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
