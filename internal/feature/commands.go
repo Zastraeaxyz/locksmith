@@ -39,6 +39,14 @@ func lockCommand() *discordgo.ApplicationCommand {
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "status",
 				Description: "Show your active ChastiSafe locks",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "public",
+						Description: "Post the reply publicly instead of privately",
+						Required:    false,
+					},
+				},
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -195,7 +203,7 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 
 	switch sub.Name {
 	case "status":
-		return f.handleLockStatus(ctx, s, i)
+		return f.handleLockStatus(ctx, s, i, sub.Options)
 	case "draw":
 		return f.handleLockDraw(ctx, s, i)
 	case "notify":
@@ -211,29 +219,30 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 	}
 }
 
-func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, opts []*discordgo.ApplicationCommandInteractionDataOption) error {
 	userID := bot.UserID(i)
-	if err := bot.DeferEphemeral(s, i); err != nil {
+	public := boolOption(opts, "public")
+	if err := bot.Defer(s, i, !public); err != nil {
 		return err
 	}
 
 	client, cred, err := f.clientFor(ctx, userID)
 	if err != nil {
-		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
+		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 	locks, err := client.Loaded(ctx)
 	if err != nil {
-		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
+		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 
 	views := ownLockViews(locks, cred.ChastiSafeID)
 	if len(views) == 0 {
-		return sendEphemeral(s, i, "You have no active ChastiSafe locks.")
+		return bot.EditChunks(s, i, "You have no active ChastiSafe locks.", !public)
 	}
 
 	own := filterOwn(locks, cred.ChastiSafeID)
 	freeze := f.freezeTimes(ctx, client, own)
-	return sendEphemeral(s, i, renderStatus(views, cred.ChastiSafeID, freeze, f.now()))
+	return bot.EditChunks(s, i, renderStatus(views, cred.ChastiSafeID, freeze, f.now()), !public)
 }
 
 func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {

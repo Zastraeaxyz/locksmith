@@ -37,10 +37,11 @@ public embed with the user-install button and a link to this repository.
 | --- | --- |
 | `/login` | Opens a private modal and stores your ChastiSafe developer code, encrypted |
 | `/logout` | Removes your saved code and draw subscription |
-| `/lock status` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
+| `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
 | `/lock notify [enabled]` | Turns draw notifications on (default) or off |
 | `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply |
+| `/history [include_test] [include_old] [public]` | Your completed locks, newest first |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |
 | `/rules view [user]` | Shares a member's personal rules of play |
@@ -65,6 +66,12 @@ value, so it does not poll ChastiSafe constantly.
 `/lock log` shows pick events from the last five minutes by default. Add
 `full:true` for every event, `ref:` to pick a running or previous lock, and
 `public:true` to post the reply in the channel.
+
+`/history` lists your completed locks, newest first, with duration, unlock
+reason, keyholder, and rating. `TEST` locks and locks older than a year are
+hidden by default; add `include_test:true` or `include_old:true` to bring them
+back, and `public:true` to post the reply in the channel. `/lock status` also
+accepts `public:true`.
 
 `/lock draw` posts a public draw board so the channel can watch the session.
 Draw and Stop are available to the lockee and their keyholder; anyone else
