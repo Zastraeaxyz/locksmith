@@ -231,14 +231,9 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 		return sendEphemeral(s, i, "You have no active ChastiSafe locks.")
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "**Your active lock%s** (%d)\n", plural(len(views)), len(views))
-	for idx := range views {
-		b.WriteString("\n")
-		b.WriteString(cs.LockDetailText(&views[idx]))
-		b.WriteString("\n")
-	}
-	return sendEphemeral(s, i, b.String())
+	own := filterOwn(locks, cred.ChastiSafeID)
+	freeze := f.freezeTimes(ctx, client, own)
+	return sendEphemeral(s, i, renderStatus(views, cred.ChastiSafeID, freeze, f.now()))
 }
 
 func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
