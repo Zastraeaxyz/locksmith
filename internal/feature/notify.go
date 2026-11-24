@@ -77,22 +77,26 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		return
 	}
 
-	lock := findLock(locks, n.LockID, cred.ChastiSafeID)
+	now := f.now()
+	lock := findLock(locks, n.LockID, cred.ChastiSafeID, now)
 	if lock == nil {
-		_ = sendDM(s, userID, "Your ChastiSafe card lock is no longer active, so draw notifications are off.")
+		_ = sendDM(s, userID, "Your ChastiSafe lock is no longer active, so notifications are off.")
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
 	if lock.IsReady() {
-		_ = sendDM(s, userID, fmt.Sprintf("**%s** is ready to unlock, so draw notifications are off.", lockName(lock)))
+		_ = sendDM(s, userID, fmt.Sprintf("**%s** is ready to unlock, so notifications are off.", lockName(lock)))
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
-	now := f.now()
 	sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, &n)
 
 	if lock.IsFrozen() {
-		n.NextCheckAt = now.Add(15 * time.Minute)
+		next := now.Add(15 * time.Minute)
+		if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && checkin.Before(next) {
+			next = checkin
+		}
+		n.NextCheckAt = next
 		if err := f.store.Subscribe(ctx, &n); err != nil {
 			f.log.Warn("updating notification", "user_id", userID, "err", err)
 		}
@@ -168,19 +172,25 @@ func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.Lo
 
 // nextNotificationCheck picks the next poll for draws and check-ins.
 func (f *Feature) nextNotificationCheck(lock *cs.LoadedLock, now time.Time, draws int, retry bool) time.Time {
-	next := now.Add(5 * time.Minute)
-	if wait := lock.NextPickIn(); wait > 0 {
-		next = now.Add(wait + 2*time.Second)
-		if draws > 0 && lock.MaxPicks > 0 && draws >= lock.MaxPicks {
-			// Capped: wait for the member to draw before more can accrue.
-			next = now.Add(5 * time.Minute)
+	var next time.Time
+	if lock.IsCardLock() {
+		next = now.Add(5 * time.Minute)
+		if wait := lock.NextPickIn(); wait > 0 {
+			next = now.Add(wait + 2*time.Second)
+			if draws > 0 && lock.MaxPicks > 0 && draws >= lock.MaxPicks {
+				// Capped: wait for the member to draw before more can accrue.
+				next = now.Add(5 * time.Minute)
+			}
 		}
 	}
 	if retry {
 		next = now.Add(5 * time.Minute)
 	}
-	if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && checkin.Before(next) {
+	if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && (next.IsZero() || checkin.Before(next)) {
 		next = checkin
+	}
+	if next.IsZero() {
+		next = now.Add(15 * time.Minute)
 	}
 	return next
 }
@@ -219,13 +229,16 @@ func notificationText(lock *cs.LoadedLock, now time.Time) string {
 	return b.String()
 }
 
-func findLock(locks []cs.LoadedLock, lockID, chastisafeID string) *cs.LoadedLock {
+func findLock(locks []cs.LoadedLock, lockID, chastisafeID string, now time.Time) *cs.LoadedLock {
 	for idx := range locks {
 		if lockID != "" && locks[idx].ID.String() == lockID {
 			return &locks[idx]
 		}
 	}
-	return activeCardLock(locks, chastisafeID)
+	if lock := activeCardLock(locks, chastisafeID); lock != nil {
+		return lock
+	}
+	return activeCheckinLock(locks, chastisafeID, now)
 }
 
 func lockName(lock *cs.LoadedLock) string {

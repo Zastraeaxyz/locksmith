@@ -56,7 +56,8 @@ password inputs in modals, so this is the closest equivalent.
 
 ## Notifications
 
-`/lock notify` records the member and their current card lock. A scheduler
+`/lock notify` records the member and the lock to watch: their active card lock
+when they have one, otherwise a lock with a check-in schedule. The scheduler
 checks each subscription against the lock's draw schedule and sends a DM when
 one or more draws become available. The DM lists draws available, cards left,
 greens needed, and the next draw time. After a notification the bot waits for

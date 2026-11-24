@@ -292,17 +292,24 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
 	}
 
+	now := f.now()
 	lock := activeCardLock(locks, cred.ChastiSafeID)
+	checkinOnly := false
+	if lock == nil {
+		lock = activeCheckinLock(locks, cred.ChastiSafeID, now)
+		checkinOnly = lock != nil
+	}
 	if lock == nil {
 		_ = f.store.Unsubscribe(ctx, userID)
-		return sendEphemeral(s, i, "You have no active card lock to watch, so notifications are off.")
+		return sendEphemeral(s, i, "You have no active card lock or check-in to watch, so notifications are off.")
 	}
-	next := f.now().Add(10 * time.Second)
-	if lock.DrawsAvailable() == 0 {
+
+	next := now.Add(10 * time.Second)
+	if lock.IsCardLock() && lock.DrawsAvailable() == 0 {
 		if wait := lock.NextPickIn(); wait > 0 {
-			next = f.now().Add(wait + 2*time.Second)
+			next = now.Add(wait + 2*time.Second)
 		} else {
-			next = f.now().Add(time.Minute)
+			next = now.Add(time.Minute)
 		}
 	}
 	if err := f.store.Subscribe(ctx, &store.Notification{
@@ -317,7 +324,18 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	name := lockName(lock)
-	f.log.Info("notify subscribed", "user_id", userID, "lock_id", lock.ID.String())
+	f.log.Info("notify subscribed", "user_id", userID, "lock_id", lock.ID.String(), "checkin_only", checkinOnly)
+	if !lock.IsCardLock() {
+		if remaining := checkinIn(lock, now); remaining > 0 {
+			return sendEphemeral(s, i, fmt.Sprintf(
+				"Check-in notifications are on for **%s**. Next check-in %s.",
+				name, relativeTimestamp(now.Add(remaining)),
+			))
+		}
+		return sendEphemeral(s, i, fmt.Sprintf(
+			"Check-in notifications are on for **%s**. I will ping you when it is due.", name,
+		))
+	}
 	if draws := lock.DrawsAvailable(); draws > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
 			"Notifications are on for **%s**. You have %s available now.",
@@ -327,13 +345,38 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	if wait := lock.NextPickIn(); wait > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
 			"Notifications are on for **%s**. Next draw opens %s.",
-			name, relativeTimestamp(f.now().Add(wait)),
+			name, relativeTimestamp(now.Add(wait)),
 		))
 	}
 	return sendEphemeral(s, i, fmt.Sprintf(
 		"Notifications are on for **%s**. I will ping you when I see a fresh draw or a check-in is due.",
 		name,
 	))
+}
+
+// activeCheckinLock returns the caller's active lockee lock that needs
+// check-ins, preferring the one due soonest. It is the fallback for members
+// with no card lock, such as a timer lock.
+func activeCheckinLock(locks []cs.LoadedLock, chastisafeID string, now time.Time) *cs.LoadedLock {
+	var pick *cs.LoadedLock
+	var pickIn time.Duration
+	for idx := range locks {
+		lock := &locks[idx]
+		if lock.IsReady() || lock.CheckInPeriod <= 0 {
+			continue
+		}
+		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
+			continue
+		}
+		remaining := checkinIn(lock, now)
+		if remaining < 0 {
+			remaining = 0
+		}
+		if pick == nil || remaining < pickIn {
+			pick, pickIn = lock, remaining
+		}
+	}
+	return pick
 }
 
 // activeCardLock returns the caller's newest active, unfrozen card lock,

@@ -264,3 +264,72 @@ func textTimestamp(text string) time.Time {
 	}
 	return time.Unix(seconds, 0).UTC()
 }
+
+func TestActiveCheckinLock(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	locks := []cs.LoadedLock{
+		{ID: "no-checkin", Type: "timer", LockeeID: "me"},
+		{ID: "keyholder", Type: "timer", LockeeID: "other", KeyholderID: "me", CheckInPeriod: 60},
+		{ID: "ready", Type: "timer", LockeeID: "me", CheckInPeriod: 60, ReadyToUnlock: true},
+		{ID: "later", Type: "timer", LockeeID: "me", CheckInPeriod: 1440, TimeToNextCheckIn: 7200},
+		{ID: "sooner", Type: "card", LockeeID: "me", CheckInPeriod: 1440, TimeToNextCheckIn: 600},
+		{ID: "overdue", Type: "timer", LockeeID: "me", CheckInPeriod: 1440},
+	}
+
+	got := activeCheckinLock(locks, "me", now)
+	if got == nil || got.ID != "overdue" {
+		t.Fatalf("picked %+v, want overdue", got)
+	}
+
+	if got := activeCheckinLock(locks, "someone-else", now); got != nil {
+		t.Fatalf("picked %+v for another member", got)
+	}
+
+	if got := activeCheckinLock(nil, "me", now); got != nil {
+		t.Fatalf("picked %+v from no locks", got)
+	}
+}
+
+func TestNextNotificationCheckCheckinOnly(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	f := &Feature{checkinLead: time.Hour}
+
+	lock := &cs.LoadedLock{
+		ID:                "timer-1",
+		Type:              "timer",
+		LockeeID:          "me",
+		CheckInPeriod:     1440,
+		TimeToNextCheckIn: 3 * 3600,
+	}
+
+	got := f.nextNotificationCheck(lock, now, 0, false)
+	want := now.Add(2*time.Hour + 2*time.Second)
+	if !got.Equal(want) {
+		t.Fatalf("next = %v, want %v", got, want)
+	}
+
+	// A lock with neither draws nor check-ins still wakes up eventually.
+	plain := &cs.LoadedLock{ID: "plain", Type: "timer", LockeeID: "me"}
+	got = f.nextNotificationCheck(plain, now, 0, false)
+	if want := now.Add(15 * time.Minute); !got.Equal(want) {
+		t.Fatalf("plain next = %v, want %v", got, want)
+	}
+}
+
+func TestFindLockFallbacks(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	locks := []cs.LoadedLock{
+		{ID: "timer", Type: "timer", LockeeID: "me", CheckInPeriod: 1440, TimeToNextCheckIn: 3600},
+	}
+
+	got := findLock(locks, "gone", "me", now)
+	if got == nil || got.ID != "timer" {
+		t.Fatalf("check-in fallback = %+v, want timer", got)
+	}
+
+	withCard := append(locks, cs.LoadedLock{ID: "card", Type: "card", LockeeID: "me"})
+	got = findLock(withCard, "gone", "me", now)
+	if got == nil || got.ID != "card" {
+		t.Fatalf("card fallback = %+v, want card", got)
+	}
+}
