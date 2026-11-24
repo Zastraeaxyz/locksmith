@@ -70,6 +70,7 @@ func locksmithDescription() string {
 	b.WriteString("• `/lock draw` opens a public draw board with Draw and Stop\n")
 	b.WriteString("• `/lock notify` DMs you when a draw is ready\n")
 	b.WriteString("• `/lock log` shows recent draws or the full history\n")
+	b.WriteString("• `/history` lists your completed locks\n")
 	b.WriteString("• `/profile view`, `/rules view`, and `/kinks view` share your markdown documents\n\n")
 	b.WriteString("You no longer need to open chastisafe.com. Install Locksmith to your Discord account, ")
 	b.WriteString("then run the commands in DMs, group DMs, and servers that do not have the bot. ")
