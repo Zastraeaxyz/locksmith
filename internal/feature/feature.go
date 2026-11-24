@@ -102,7 +102,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(logoutCommand(), f.handleLogoutCommand)
 	b.AddCommand(lockCommand(), f.handleLockCommand)
 	b.AddCommand(historyCommand(), f.handleHistoryCommand)
-	b.AddCommand(locksmithCommand(), f.handleLocksmithCommand)
+	b.AddCommand(helpCommand(), f.handleHelpCommand)
 	b.AddCommand(profileCommand(), f.handleProfileCommand)
 	b.AddCommand(rulesCommand(), f.handleRulesCommand)
 	b.AddCommand(kinksCommand(), f.handleKinksCommand)

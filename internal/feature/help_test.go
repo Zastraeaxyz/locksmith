@@ -7,9 +7,9 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func TestLocksmithCommand(t *testing.T) {
-	cmd := locksmithCommand()
-	if cmd.Name != "locksmith" {
+func TestHelpCommand(t *testing.T) {
+	cmd := helpCommand()
+	if cmd.Name != "help" {
 		t.Fatalf("name = %q", cmd.Name)
 	}
 	if strings.TrimSpace(cmd.Description) == "" {
@@ -17,15 +17,15 @@ func TestLocksmithCommand(t *testing.T) {
 	}
 }
 
-func TestLocksmithEmbed(t *testing.T) {
-	embed := locksmithEmbed("123")
+func TestHelpEmbed(t *testing.T) {
+	embed := helpEmbed("123")
 	if embed.Title != "Locksmith" {
 		t.Fatalf("title = %q", embed.Title)
 	}
 	if embed.URL != repoURL {
 		t.Fatalf("url = %q, want %q", embed.URL, repoURL)
 	}
-	if embed.Color != aboutColor {
+	if embed.Color != embedColor {
 		t.Fatalf("color = %#x", embed.Color)
 	}
 
@@ -37,11 +37,23 @@ func TestLocksmithEmbed(t *testing.T) {
 		"/lock notify",
 		"/lock log",
 		"/lock share",
+		"/history",
+		"/help",
 		"chastisafe.com",
 		"group DMs",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
+		}
+	}
+	for _, want := range []string{
+		"**Commands**",
+		"**Example: load, draw, check in**",
+		"**Keyholders**",
+		"set your device to the code I reply with",
+	} {
+		if !strings.Contains(embed.Description, want) {
+			t.Errorf("description missing tutorial text %q:\n%s", want, embed.Description)
 		}
 	}
 	if embed.Footer == nil || !strings.Contains(embed.Footer.Text, "Work in progress") {
@@ -63,8 +75,8 @@ func TestUserInstallURL(t *testing.T) {
 	}
 }
 
-func TestLocksmithButtons(t *testing.T) {
-	components := locksmithButtons("123")
+func TestHelpButtons(t *testing.T) {
+	components := helpButtons("123")
 	if len(components) != 1 {
 		t.Fatalf("components = %d, want 1 row", len(components))
 	}

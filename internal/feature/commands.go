@@ -103,7 +103,7 @@ func lockCommand() *discordgo.ApplicationCommand {
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "notify",
-				Description: "Get pinged for draws and check-ins",
+				Description: "Get pinged for locks you loaded in the ChastiSafe app",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
@@ -241,29 +241,7 @@ func loginWelcomeText(identity *cs.Identity) string {
 	} else {
 		fmt.Fprintf(&b, "Logged in as %s.\n\n", name)
 	}
-
-	b.WriteString("**Commands**\n")
-	b.WriteString("• `/lock status` shows your active locks, draws left, timers, and next check-in.\n")
-	b.WriteString("• `/lock load link:<share link>` starts a lock a keyholder shared with you. I ask for the lock code and keyholder passcode privately.\n")
-	b.WriteString("• `/lock draw` opens the draw board. Press **Draw** to pick a card.\n")
-	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
-	b.WriteString("• `/lock notify [enabled]` turns DM reminders for draws and check-ins on or off.\n")
-	b.WriteString("• `/lock log [full] [ref]` shows draws from the last 5 minutes, or the full log.\n")
-	b.WriteString("• `/lock share ref:<template>` lets keyholders post a lock with load buttons.\n")
-	b.WriteString("• `/history` lists your completed locks.\n")
-	b.WriteString("• `/profile`, `/rules`, and `/kinks` view or edit your markdown documents.\n")
-	b.WriteString("• `/locksmith` posts the install links so you can share them.\n")
-	b.WriteString("• `/logout` removes your saved code.\n\n")
-
-	b.WriteString("**Example: load, draw, check in**\n")
-	b.WriteString("1. `/lock load link:https://chastisafe.com/#l/1234` and enter the code you set on your device.\n")
-	b.WriteString("2. `/lock status` shows the lock and how many draws are ready.\n")
-	b.WriteString("3. `/lock draw` opens the board. Press **Draw** until the lock is ready to open.\n")
-	b.WriteString("4. When a check-in is due, press **Check-in** on the reminder DM, or run `/lock checkin`.\n\n")
-
-	b.WriteString("**Keyholders**\n")
-	b.WriteString("Create the template on chastisafe.com, then run `/lock share ref:My Lock`. ")
-	b.WriteString("The post has **Load with Locksmith** for bot users and **Open in ChastiSafe** for everyone else.")
+	b.WriteString(guideText())
 	return b.String()
 }
 
@@ -400,21 +378,7 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		return sendEphemeral(s, i, "You have no active card lock or check-in to watch, so notifications are off.")
 	}
 
-	next := now.Add(10 * time.Second)
-	if lock.IsCardLock() && lock.DrawsAvailable() == 0 {
-		if wait := lock.NextPickIn(); wait > 0 {
-			next = now.Add(wait + 2*time.Second)
-		} else {
-			next = now.Add(time.Minute)
-		}
-	}
-	if err := f.store.Subscribe(ctx, &store.Notification{
-		DiscordUserID: userID,
-		LockID:        lock.ID.String(),
-		LastDraws:     string(lock.Draws),
-		LastPicks:     0, // notify on the first check when draws are already ready
-		NextCheckAt:   next,
-	}); err != nil {
+	if err := f.watchLock(ctx, userID, lock); err != nil {
 		f.log.Warn("subscribing", "user_id", userID, "err", err)
 		return sendEphemeral(s, i, "I could not save your subscription. Try again in a moment.")
 	}
@@ -448,6 +412,31 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		"Notifications are on for **%s**. I will ping you when I see a fresh draw or a check-in is due.",
 		name,
 	))
+}
+
+// watchLock subscribes the member to draw and check-in reminders for one lock.
+// A member watches one lock at a time, so a new subscription replaces the old
+// one. The first check reports draws that are already available.
+func (f *Feature) watchLock(ctx context.Context, userID string, lock *cs.LoadedLock) error {
+	if f.store == nil || lock == nil {
+		return errNotConfigured
+	}
+	now := f.now()
+	next := now.Add(10 * time.Second)
+	if lock.IsCardLock() && lock.DrawsAvailable() == 0 {
+		if wait := lock.NextPickIn(); wait > 0 {
+			next = now.Add(wait + 2*time.Second)
+		} else {
+			next = now.Add(time.Minute)
+		}
+	}
+	return f.store.Subscribe(ctx, &store.Notification{
+		DiscordUserID: userID,
+		LockID:        lock.ID.String(),
+		LastDraws:     string(lock.Draws),
+		LastPicks:     0, // notify on the first check when draws are already ready
+		NextCheckAt:   next,
+	})
 }
 
 // activeCheckinLock returns the caller's active lockee lock that needs

@@ -200,7 +200,7 @@ func shareEmbed(template *cs.Template, baseURL, sharer string) *discordgo.Messag
 	embed := &discordgo.MessageEmbed{
 		Title:       name,
 		URL:         link,
-		Color:       aboutColor,
+		Color:       embedColor,
 		Description: b.String(),
 	}
 	if sharer != "" {
@@ -305,7 +305,7 @@ func (f *Feature) replyInstallPrompt(s *discordgo.Session, i *discordgo.Interact
 
 	embed := &discordgo.MessageEmbed{
 		Title: "Install Locksmith first",
-		Color: aboutColor,
+		Color: embedColor,
 		Description: "You need Locksmith installed to load locks from Discord.\n\n" +
 			"1. Press **Install Locksmith** and add it to your account.\n" +
 			"2. Run `/login` with your ChastiSafe developer code.\n" +
