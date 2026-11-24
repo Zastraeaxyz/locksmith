@@ -22,6 +22,8 @@ github.com/zastraeaxyz/chastisafe-go v0.2.1 h1:NzKFea5mpre4Rb1yQwLxfVTYWciUvN6vd
 github.com/zastraeaxyz/chastisafe-go v0.2.1/go.mod h1:+RZJhCH1gDy3gbYfoR+Y449Vl/sZmmSuxXH0S1002Rg=
 github.com/zastraeaxyz/chastisafe-go v0.3.0 h1:nD6S744z0Mm4DNXVTmI8kUOeNh7DPrFDUVBLFBLZgMI=
 github.com/zastraeaxyz/chastisafe-go v0.3.0/go.mod h1:+RZJhCH1gDy3gbYfoR+Y449Vl/sZmmSuxXH0S1002Rg=
+github.com/zastraeaxyz/chastisafe-go v0.3.1 h1:HJBHdmnytdufA7usB+7ppbNTmLwPZy7N5AhLuT04bcc=
+github.com/zastraeaxyz/chastisafe-go v0.3.1/go.mod h1:+RZJhCH1gDy3gbYfoR+Y449Vl/sZmmSuxXH0S1002Rg=
 golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b h1:7mWr3k41Qtv8XlltBkDkl8LoP3mpSgBW8BUoxtEdbXg=
 golang.org/x/crypto v0.0.0-20210421170649-83a5a9bb288b/go.mod h1:T9bdIzuCu7OtxOm1hfPfRQxPLYneinmdGuTeoZ9dtd4=
 golang.org/x/mod v0.42.0 h1:ICeL3t2L30ljSPHHxDnR4fqVcBt/zR2zJAb9juavmQg=

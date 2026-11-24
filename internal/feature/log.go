@@ -72,14 +72,39 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 		return bot.Edit(s, i, err.Error())
 	}
 
+	header := f.logHeader(ctx, client, target, cred.ChastiSafeID)
 	entries, truncated, err := f.fetchLog(ctx, client, target.id(), full)
 	if err != nil {
 		f.log.Warn("loading lock log", "user_id", userID, "lock_id", target.id().String(), "err", err)
-		text := logOutput(target, nil, false, full, note) +
+		text := logOutput(header, nil, false, full, note) +
 			"\n\nI could not load the log for that lock."
 		return bot.EditChunks(s, i, text, !public)
 	}
-	return bot.EditChunks(s, i, logOutput(target, entries, truncated, full, note), !public)
+	return bot.EditChunks(s, i, logOutput(header, entries, truncated, full, note), !public)
+}
+
+// logHeader renders the compact status block for a running lock, or the
+// completed-lock stats for a previous lock.
+func (f *Feature) logHeader(ctx context.Context, client *cs.Client, target *logTarget, viewerID string) string {
+	switch {
+	case target == nil:
+		return ""
+	case target.running != nil:
+		freeze := map[cs.ID]time.Time{}
+		if target.running.IsFrozen() {
+			freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target.running})
+		}
+		view := cs.LockView{Lock: *target.running, Role: cs.RoleLockee}
+		return renderLockStatus(&view, statusOptions{
+			viewerID:    viewerID,
+			freezeSince: freeze,
+			now:         f.now(),
+		})
+	case target.previous != nil:
+		return previousText(target.previous)
+	default:
+		return ""
+	}
 }
 
 func (f *Feature) fetchLog(ctx context.Context, client *cs.Client, lockID cs.ID, full bool) ([]cs.LogEntry, bool, error) {
@@ -119,22 +144,21 @@ func (f *Feature) fetchLog(ctx context.Context, client *cs.Client, lockID cs.ID,
 	return out, len(out) >= limit, nil
 }
 
-func logOutput(target *logTarget, entries []cs.LogEntry, truncated, full bool, note string) string {
+func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note string) string {
 	var b strings.Builder
 
-	switch {
-	case target != nil && target.running != nil:
-		view := cs.LockView{Lock: *target.running, Role: cs.RoleLockee}
-		b.WriteString(cs.LockDetailText(&view))
-	case target != nil && target.previous != nil:
-		b.WriteString(previousText(target.previous))
+	if header != "" {
+		b.WriteString(header)
 	}
-
 	if note != "" {
-		b.WriteString("\n\n")
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
 		b.WriteString(note)
 	}
-	b.WriteString("\n\n")
+	if b.Len() > 0 {
+		b.WriteString("\n\n")
+	}
 
 	if len(entries) == 0 {
 		if full {

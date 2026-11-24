@@ -1,6 +1,7 @@
 package feature
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
@@ -128,5 +129,27 @@ func TestDrawsAvailableZero(t *testing.T) {
 	lock := &cs.LoadedLock{Type: "card", Picks: 0, Wait: 300}
 	if got := lock.DrawsAvailable(); got != 0 {
 		t.Fatalf("DrawsAvailable = %d, want 0", got)
+	}
+}
+
+func TestLogHeaderUsesCompactStatus(t *testing.T) {
+	now := statusTestNow()
+	lock := statusTestLock("a", "Lock A", now)
+	f := &Feature{now: func() time.Time { return now }}
+
+	header := f.logHeader(context.Background(), nil, &logTarget{running: &lock}, "viewer")
+	for _, want := range []string{
+		":locked: Locked",
+		":key: Keyholder: keyholder#0",
+		":flower_playing_cards:",
+	} {
+		if !strings.Contains(header, want) {
+			t.Errorf("header missing %q:\n%s", want, header)
+		}
+	}
+	for _, bad := range []string{"Type:", "Role:", "Purpose:", "Lockee:"} {
+		if strings.Contains(header, bad) {
+			t.Errorf("header should omit %q:\n%s", bad, header)
+		}
 	}
 }
