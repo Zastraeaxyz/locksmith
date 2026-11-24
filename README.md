@@ -11,6 +11,23 @@ group DMs, and in servers where Locksmith is not a member.
 The ChastiSafe client lives in
 [`github.com/zastraeaxyz/chastisafe-go`](https://github.com/zastraeaxyz/chastisafe-go).
 
+## Install
+
+Add Locksmith to a server. This installs the bot and the slash commands with
+View Channels, Send Messages, and Embed Links:
+
+```
+https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=0&scope=bot%20applications.commands&permissions=19456
+```
+
+Install Locksmith to your Discord account. This is Discord's User Install: the
+same commands work in DMs, group DMs, and servers where Locksmith is not a
+member:
+
+```
+https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=1&scope=applications.commands
+```
+
 ## Commands
 
 | Command | What it does |
@@ -44,15 +61,10 @@ Draw and Stop are available to the lockee and their keyholder; anyone else
 gets a private refusal. The board keeps a running log of the cards drawn, and
 the buttons are removed when the session stops or the draws run out.
 
-## Install and contexts
+## Contexts
 
-Server install is the normal bot invite. User install authorizes the app to
-your Discord account, which enables the same commands in bot DMs, group DMs,
-and servers where Locksmith has not been added.
-
-```
-https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=1&scope=applications.commands
-```
+User install authorizes the app to your Discord account and enables the same
+commands in bot DMs, group DMs, and servers where Locksmith has not been added.
 
 Commands are registered globally with guild, bot DM, and private channel
 contexts. Global command changes can take up to an hour to appear after a
