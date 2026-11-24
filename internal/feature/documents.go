@@ -121,8 +121,26 @@ func (f *Feature) handleDocumentView(ctx context.Context, s *discordgo.Session, 
 		_ = f.store.UpdateHandle(ctx, callerID, normalizeHandle(bot.Username(i)))
 	}
 
-	header := fmt.Sprintf("**<@%s>'s %s**\n\n%s", targetID, kindLabel(kind), doc.Content)
-	return bot.ReplyChunks(s, i, header, false, noMentions())
+	name := strings.TrimSpace(doc.Handle)
+	if targetID == callerID {
+		if current := strings.TrimSpace(bot.Username(i)); current != "" {
+			name = current
+		}
+	}
+	if name == "" {
+		name = targetID
+	}
+
+	embed := documentEmbed(kind, name, doc.Content)
+	return bot.ReplyEmbedAllowed(s, i, []*discordgo.MessageEmbed{embed}, nil, false, noMentions())
+}
+
+func documentEmbed(kind, name, content string) *discordgo.MessageEmbed {
+	return &discordgo.MessageEmbed{
+		Title:       fmt.Sprintf("%s's %s", name, kindLabel(kind)),
+		Description: truncateRunes(content, documentMaxLength),
+		Color:       documentColor(kind),
+	}
 }
 
 func (f *Feature) handleDocumentEdit(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, kind string) error {
@@ -248,6 +266,13 @@ func isSnowflake(value string) bool {
 
 func noMentions() *discordgo.MessageAllowedMentions {
 	return &discordgo.MessageAllowedMentions{Parse: []discordgo.AllowedMentionType{}}
+}
+
+func documentColor(kind string) int {
+	if kind == store.DocumentRules {
+		return 0x9B59B6
+	}
+	return 0x5865F2
 }
 
 func truncateRunes(text string, limit int) string {

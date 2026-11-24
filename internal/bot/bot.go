@@ -351,48 +351,18 @@ func ReplyEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, conten
 	return Reply(s, i, content, true)
 }
 
-// ReplyChunks answers an interaction, splitting long text across follow-up
-// messages. allowedMentions is applied to every chunk.
-func ReplyChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool, allowedMentions *discordgo.MessageAllowedMentions) error {
-	chunks := chunk(text, 1900)
-	if len(chunks) == 0 {
-		chunks = []string{""}
-	}
-
-	data := &discordgo.InteractionResponseData{
-		Content:         chunks[0],
-		AllowedMentions: allowedMentions,
-	}
-	if ephemeral {
-		data.Flags = discordgo.MessageFlagsEphemeral
-	}
-	if err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseChannelMessageWithSource,
-		Data: data,
-	}); err != nil {
-		return err
-	}
-
-	for _, part := range chunks[1:] {
-		params := &discordgo.WebhookParams{
-			Content:         part,
-			AllowedMentions: allowedMentions,
-		}
-		if ephemeral {
-			params.Flags = discordgo.MessageFlagsEphemeral
-		}
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // ReplyEmbed answers an interaction with an optional embed and component row.
 func ReplyEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, ephemeral bool) error {
+	return ReplyEmbedAllowed(s, i, embeds, components, ephemeral, nil)
+}
+
+// ReplyEmbedAllowed answers an interaction with an embed and explicit allowed
+// mentions, so user-authored embed text cannot ping the channel.
+func ReplyEmbedAllowed(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, ephemeral bool, allowedMentions *discordgo.MessageAllowedMentions) error {
 	data := &discordgo.InteractionResponseData{
-		Embeds:     embeds,
-		Components: components,
+		Embeds:          embeds,
+		Components:      components,
+		AllowedMentions: allowedMentions,
 	}
 	if ephemeral {
 		data.Flags = discordgo.MessageFlagsEphemeral

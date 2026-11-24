@@ -89,7 +89,8 @@ them.
 Each member can keep one profile and one rules-of-play document as plain
 markdown.
 
-- `/profile view [user]` and `/rules view [user]` post the document publicly.
+- `/profile view [user]` and `/rules view [user]` post the document publicly in
+  an embed.
 - `/profile edit` and `/rules edit` open a private modal prefilled with the
   current markdown. Submitting an empty modal clears the document.
 - Documents are limited to 4000 characters, which is Discord's modal limit.

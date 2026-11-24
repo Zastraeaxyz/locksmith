@@ -110,3 +110,24 @@ func TestResolveDocumentUser(t *testing.T) {
 		t.Fatalf("unknown = %v, %v", ok, err)
 	}
 }
+
+func TestDocumentEmbed(t *testing.T) {
+	profile := documentEmbed(store.DocumentProfile, "zastraea", strings.Repeat("x", 5000))
+	if profile.Title != "zastraea's profile" {
+		t.Fatalf("title = %q", profile.Title)
+	}
+	if got := len([]rune(profile.Description)); got != documentMaxLength {
+		t.Fatalf("description length = %d, want %d", got, documentMaxLength)
+	}
+
+	rules := documentEmbed(store.DocumentRules, "zastraea", "line one\nline two")
+	if rules.Title != "zastraea's rules of play" {
+		t.Fatalf("rules title = %q", rules.Title)
+	}
+	if rules.Description != "line one\nline two" {
+		t.Fatalf("rules description = %q", rules.Description)
+	}
+	if rules.Color == profile.Color {
+		t.Fatal("profile and rules should use different colors")
+	}
+}
