@@ -109,8 +109,9 @@ accepts `public:true`.
 
 `/lock draw` posts a public draw board so the channel can watch the session.
 Draw and Stop are available to the lockee and their keyholder; anyone else
-gets a private refusal. The board keeps a running log of the cards drawn, and
-the buttons are removed when the session stops or the draws run out.
+gets a private refusal. The board keeps a running log of the cards drawn, a
+running total, and a countdown of the cards left in the deck. The buttons are
+removed when the session stops or the draws run out.
 
 ## Contexts
 

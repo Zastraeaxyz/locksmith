@@ -68,7 +68,7 @@ func TestDrawEmbedRunning(t *testing.T) {
 	}
 	session.setLock(lock)
 
-	embed := session.embed(lock, "A note.", false)
+	embed := session.embed(lock, "A note.")
 	if embed.Title != "Test card" {
 		t.Fatalf("title = %q", embed.Title)
 	}
@@ -86,8 +86,40 @@ func TestDrawEmbedRunning(t *testing.T) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
 		}
 	}
+	if strings.Contains(embed.Description, "Totals:") {
+		t.Errorf("empty board should not show totals:\n%s", embed.Description)
+	}
 	if strings.Contains(embed.Description, "Next draw") {
 		t.Errorf("running board should not show a next draw:\n%s", embed.Description)
+	}
+}
+
+func TestDrawEmbedLiveTotalsCountdown(t *testing.T) {
+	lock := &cs.LoadedLock{
+		Type:  "card",
+		Picks: 2,
+		Wait:  120,
+		Deck:  cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
+	}
+	session := &drawSession{lockName: "Test card"}
+	session.setLock(lock)
+	session.add(drawEntry{card: cs.CardRed})
+
+	embed := session.embed(lock, "")
+	want := "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, 3 remaining"
+	if !strings.Contains(embed.Description, want) {
+		t.Errorf("description missing %q:\n%s", want, embed.Description)
+	}
+
+	// The next pick reloads the lock with one green gone and adds it to the log.
+	lock.Deck = cs.Deck{cs.CardGreen: 1, cs.CardRed: 1}
+	session.setLock(lock)
+	session.add(drawEntry{card: cs.CardGreen})
+
+	embed = session.embed(lock, "")
+	want = "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 1 green, 2 remaining"
+	if !strings.Contains(embed.Description, want) {
+		t.Errorf("description missing %q:\n%s", want, embed.Description)
 	}
 }
 
@@ -97,6 +129,7 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 		LockName: "Test card",
 		Picks:    0,
 		Wait:     3271,
+		Deck:     cs.Deck{},
 	}
 	session := &drawSession{lockName: "Test card"}
 	session.setLock(lock)
@@ -104,14 +137,14 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 	session.add(drawEntry{card: cs.CardRed})
 	session.add(drawEntry{card: cs.CardDoubleUp})
 
-	embed := session.embed(lock, "", true)
+	embed := session.embed(lock, "")
 	for _, want := range []string{
 		"1. <:yellow_plus3:1574875092079345705> Yellow +3",
 		"2. <:red:1574875081254113453> Red card",
 		"3. <:double:1574875037104742581> Double up card",
 		"3 used · 0 left",
 		"Next draw <t:",
-		"Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, <:yellow_unknown:1574875097389465731> 1 yellow, <:double:1574875037104742581> 1 double up",
+		"Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, <:yellow_unknown:1574875097389465731> 1 yellow, <:double:1574875037104742581> 1 double up, 0 remaining",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
@@ -123,8 +156,16 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 }
 
 func TestTotalsLineOmitsMissingCards(t *testing.T) {
-	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}})
+	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}}, 0, false)
 	want := "Totals: <:red:1574875081254113453> 0 red, <:green:1574875078255185957> 2 green"
+	if got != want {
+		t.Fatalf("totalsLine = %q, want %q", got, want)
+	}
+}
+
+func TestTotalsLineShowsRemaining(t *testing.T) {
+	got := totalsLine([]drawEntry{{card: cs.CardRed}, {card: cs.CardGreen}}, 5, true)
+	want := "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 1 green, 5 remaining"
 	if got != want {
 		t.Fatalf("totalsLine = %q, want %q", got, want)
 	}

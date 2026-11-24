@@ -252,13 +252,24 @@ func lockName(lock *cs.LoadedLock) string {
 }
 
 func cardsLeft(lock *cs.LoadedLock) int {
+	cards, _ := cardsRemaining(lock)
+	return cards
+}
+
+// cardsRemaining reports the cards left and whether the lock reports a deck.
+// A reported but empty deck is zero cards, while a missing deck means the
+// count is unknown.
+func cardsRemaining(lock *cs.LoadedLock) (int, bool) {
 	if lock == nil {
-		return 0
+		return 0, false
 	}
-	if len(lock.Deck) > 0 {
-		return lock.Deck.Total()
+	if lock.Deck != nil {
+		return lock.Deck.Total(), true
 	}
-	return lock.CardsRemaining()
+	if lock.CardCount > 0 {
+		return lock.CardCount, true
+	}
+	return 0, false
 }
 
 func drawsPhrase(count int) string {

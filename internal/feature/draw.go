@@ -150,7 +150,7 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 
 	f.putSession(session)
 	return bot.EditMessage(s, i, "",
-		[]*discordgo.MessageEmbed{session.embed(lock, "", false)}, drawButtons(session.id))
+		[]*discordgo.MessageEmbed{session.embed(lock, "")}, drawButtons(session.id))
 }
 
 // replyDrawPrivate removes the public placeholder and answers privately, since
@@ -333,7 +333,7 @@ func (f *Feature) drawStop(ctx context.Context, s *discordgo.Session, i *discord
 }
 
 func (f *Feature) renderBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock, buttons bool, note string) error {
-	embed := session.embed(lock, note, !buttons)
+	embed := session.embed(lock, note)
 	components := []discordgo.MessageComponent{}
 	if buttons {
 		components = drawButtons(session.id)
@@ -341,7 +341,7 @@ func (f *Feature) renderBoard(s *discordgo.Session, i *discordgo.InteractionCrea
 	return bot.EditMessage(s, i, "", []*discordgo.MessageEmbed{embed}, components)
 }
 
-func (s *drawSession) embed(lock *cs.LoadedLock, note string, finished bool) *discordgo.MessageEmbed {
+func (s *drawSession) embed(lock *cs.LoadedLock, note string) *discordgo.MessageEmbed {
 	entries, lastCard, stored := s.snapshot()
 	if lock == nil {
 		lock = stored
@@ -359,9 +359,10 @@ func (s *drawSession) embed(lock *cs.LoadedLock, note string, finished bool) *di
 		b.WriteString("\n\n")
 		b.WriteString(note)
 	}
-	if finished && len(entries) > 0 {
+	if len(entries) > 0 {
 		b.WriteString("\n\n")
-		b.WriteString(totalsLine(entries))
+		remaining, ok := cardsRemaining(lock)
+		b.WriteString(totalsLine(entries, remaining, ok))
 	}
 
 	return &discordgo.MessageEmbed{
@@ -451,7 +452,7 @@ func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
 	return fmt.Sprintf("Next draw %s", relativeTimestamp(now.Add(wait)))
 }
 
-func totalsLine(entries []drawEntry) string {
+func totalsLine(entries []drawEntry, remaining int, hasRemaining bool) string {
 	reds, greens, yellows, doubles := 0, 0, 0, 0
 	for _, entry := range entries {
 		switch entry.card {
@@ -477,6 +478,9 @@ func totalsLine(entries []drawEntry) string {
 	}
 	if doubles > 0 {
 		parts = append(parts, fmt.Sprintf("%s %d double up", cardEmojiMarkup(cs.CardDoubleUp), doubles))
+	}
+	if hasRemaining {
+		parts = append(parts, fmt.Sprintf("%d remaining", remaining))
 	}
 	return "Totals: " + strings.Join(parts, ", ")
 }
