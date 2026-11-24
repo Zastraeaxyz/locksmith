@@ -38,6 +38,7 @@ type Options struct {
 	Now            func() time.Time
 	NotifyInterval time.Duration
 	CheckinLead    time.Duration
+	Changelog      string
 }
 
 // Feature implements the per-member ChastiSafe commands and notifications.
@@ -51,6 +52,7 @@ type Feature struct {
 	now            func() time.Time
 	notifyInterval time.Duration
 	checkinLead    time.Duration
+	changelog      string
 	limiter        *loginLimiter
 
 	templateCache *ttlCache[[]cs.Template]
@@ -84,6 +86,7 @@ func New(opts Options) *Feature {
 		now:            opts.Now,
 		notifyInterval: opts.NotifyInterval,
 		checkinLead:    opts.CheckinLead,
+		changelog:      opts.Changelog,
 		limiter:        newLoginLimiter(5, 10*time.Minute, opts.Now),
 		templateCache:  newTTLCache[[]cs.Template](autocompleteCacheTTL, opts.Now),
 		loadedCache:    newTTLCache[[]cs.LoadedLock](autocompleteCacheTTL, opts.Now),
@@ -102,6 +105,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(logoutCommand(), f.handleLogoutCommand)
 	b.AddCommand(lockCommand(), f.handleLockCommand)
 	b.AddCommand(historyCommand(), f.handleHistoryCommand)
+	b.AddCommand(changelogCommand(), f.handleChangelogCommand)
 	b.AddCommand(helpCommand(), f.handleHelpCommand)
 	b.AddCommand(profileCommand(), f.handleProfileCommand)
 	b.AddCommand(rulesCommand(), f.handleRulesCommand)

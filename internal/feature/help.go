@@ -90,7 +90,7 @@ func guideText() string {
 	b.WriteString("• `/lock notify [enabled]` turns DM reminders on or off for locks you loaded in the app. Locks loaded with `/lock load` are watched automatically. Draw reminders have an **Open draw board** button.\n")
 	b.WriteString("• `/history` lists your completed locks. A private reply includes their codes.\n")
 	b.WriteString("• `/profile`, `/rules`, and `/kinks` view or edit your markdown documents.\n")
-	b.WriteString("• `/help` posts this guide and the install links so you can share them.\n")
+	b.WriteString("• `/help` posts this guide and install links; `/changelog` shows changes.\n")
 	b.WriteString("• `/logout` removes your saved code.\n\n")
 
 	b.WriteString("**Example: load, draw, check in**\n")

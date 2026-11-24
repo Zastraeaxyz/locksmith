@@ -52,6 +52,7 @@ user-install button, and a link to this repository.
 | `/rules edit` | Opens a prefilled modal to set your rules |
 | `/kinks view [user]` | Shares a member's kinks document |
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
+| `/changelog [public]` | Shows recent Locksmith changes, newest first |
 | `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a

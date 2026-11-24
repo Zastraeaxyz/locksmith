@@ -1,0 +1,20 @@
+# Changelog
+
+Notable changes to Locksmith, newest first.
+
+## 2026-11-24
+
+### Added
+
+- `/changelog` shows recent changes inside Discord.
+- `/lock open [ref]` opens a ready lock and reveals the device code. The reply is private in servers and a normal message in DMs.
+- Private `/history` replies include each completed lock's code. Public replies omit codes.
+- Draw notification DMs have an **Open draw board** button that posts the board in the same DM.
+- When a lock is ready to unlock, the draw board offers **Open**, **Put green back**, **Reset**, and **Let keyholder decide**.
+- Card templates have a **Simulation** button that previews the expected duration and draws.
+- Lock codes are generated from the account's ChastiSafe code settings at load time, and loaded locks are watched automatically.
+
+### Changed
+
+- `/lock draw` opens the ready board when a lock is already ready, so the ready actions are reachable there too.
+- Draw notification text points at the **Open draw board** button instead of only the command.

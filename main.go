@@ -75,6 +75,7 @@ func run() error {
 		Logger:         log,
 		NotifyInterval: cfg.NotifyInterval,
 		CheckinLead:    cfg.CheckinLead,
+		Changelog:      changelogMarkdown,
 	})
 	feat.Register(b)
 
