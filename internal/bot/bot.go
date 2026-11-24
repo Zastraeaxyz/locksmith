@@ -326,6 +326,21 @@ func DeferUpdate(s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	})
 }
 
+// DeleteResponse removes the bot's deferred interaction response.
+func DeleteResponse(s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return s.InteractionResponseDelete(i.Interaction)
+}
+
+// ReplyEphemeralFollowup sends a private follow-up to an interaction that has
+// already been acknowledged.
+func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	_, err := s.FollowupMessageCreate(i.Interaction, true, &discordgo.WebhookParams{
+		Content: content,
+		Flags:   discordgo.MessageFlagsEphemeral,
+	})
+	return err
+}
+
 // ClearComponents removes the components from a message the bot posted.
 func ClearComponents(s *discordgo.Session, channelID, messageID string) error {
 	if channelID == "" || messageID == "" {

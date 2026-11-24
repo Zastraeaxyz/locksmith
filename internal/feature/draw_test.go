@@ -3,6 +3,7 @@ package feature
 import (
 	"strings"
 	"testing"
+	"time"
 
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
@@ -142,5 +143,60 @@ func TestCardColor(t *testing.T) {
 	}
 	if cardColor("") == 0 {
 		t.Fatal("default color should not be zero")
+	}
+}
+
+func TestDrawBlockedMessage(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+
+	if got := drawBlockedMessage(nil, nil, now); !strings.Contains(got, "no active card lock") {
+		t.Fatalf("nil message = %q", got)
+	}
+
+	frozen := &cs.LoadedLock{ID: "f", LockName: "Frozen Lock", Type: "card", FrozenByKeyholder: true}
+	got := drawBlockedMessage(frozen, map[cs.ID]time.Time{"f": now.Add(-time.Hour)}, now)
+	for _, want := range []string{"Frozen Lock", "frozen since <t:", ":R>", "unfrozen"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("frozen message missing %q:\n%s", want, got)
+		}
+	}
+
+	got = drawBlockedMessage(frozen, nil, now)
+	if strings.Contains(got, "since") {
+		t.Errorf("frozen message without history should not claim a since time:\n%s", got)
+	}
+
+	ready := &cs.LoadedLock{ID: "r", LockName: "Ready Lock", Type: "card", ReadyToUnlock: true}
+	if got := drawBlockedMessage(ready, nil, now); !strings.Contains(got, "ready to unlock") {
+		t.Errorf("ready message = %q", got)
+	}
+
+	waiting := &cs.LoadedLock{ID: "w", LockName: "Waiting Lock", Type: "card", Picks: 0, Wait: 300}
+	if got := drawBlockedMessage(waiting, nil, now); !strings.Contains(got, "Next draw <t:") {
+		t.Errorf("waiting message = %q", got)
+	}
+
+	waiting.Wait = 0
+	if got := drawBlockedMessage(waiting, nil, now); !strings.Contains(got, "No draws available right now") {
+		t.Errorf("waiting without timer message = %q", got)
+	}
+
+	drawable := &cs.LoadedLock{ID: "d", LockName: "Drawable", Type: "card", Picks: 1}
+	if got := drawBlockedMessage(drawable, nil, now); got != "" {
+		t.Errorf("drawable message = %q, want empty", got)
+	}
+}
+
+func TestDrawTargetNewest(t *testing.T) {
+	locks := []cs.LoadedLock{
+		{ID: "old", LockName: "Old", Type: "card", LockeeID: "viewer", LoadTime: at(-2 * time.Hour)},
+		{ID: "new", LockName: "New", Type: "card", LockeeID: "viewer", LoadTime: at(-time.Hour)},
+		{ID: "timer", LockName: "Timer", Type: "timer", LockeeID: "viewer", LoadTime: at(-30 * time.Minute)},
+		{ID: "other", LockName: "Other", Type: "card", LockeeID: "someone", LoadTime: at(-10 * time.Minute)},
+	}
+
+	got := drawTarget(locks, "viewer")
+	if got == nil || got.ID != "new" {
+		t.Fatalf("drawTarget = %+v, want newest card lock", got)
 	}
 }

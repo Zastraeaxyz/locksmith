@@ -112,16 +112,25 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 
 	client, cred, err := f.clientFor(ctx, userID)
 	if err != nil {
-		return bot.Edit(s, i, f.apiFailure(ctx, userID, err))
+		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
 	}
 	locks, err := client.Loaded(ctx)
 	if err != nil {
-		return bot.Edit(s, i, f.apiFailure(ctx, userID, err))
+		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
 	}
 
 	lock := activeCardLock(locks, cred.ChastiSafeID)
 	if lock == nil {
-		return bot.Edit(s, i, "You have no active card lock to draw from.")
+		target := drawTarget(locks, cred.ChastiSafeID)
+		freeze := map[cs.ID]time.Time{}
+		if target != nil && target.IsFrozen() {
+			freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
+		}
+		message := drawBlockedMessage(target, freeze, f.now())
+		if message == "" {
+			message = "You have no active card lock to draw from."
+		}
+		return f.replyDrawPrivate(s, i, message)
 	}
 
 	session := &drawSession{
@@ -137,14 +146,62 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	}
 	session.setLock(lock)
 
-	if lock.DrawsAvailable() == 0 {
-		return bot.EditMessage(s, i, "",
-			[]*discordgo.MessageEmbed{session.embed(lock, "", true)}, nil)
-	}
-
 	f.putSession(session)
 	return bot.EditMessage(s, i, "",
 		[]*discordgo.MessageEmbed{session.embed(lock, "", false)}, drawButtons(session.id))
+}
+
+func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	if err := bot.DeleteResponse(s, i); err != nil {
+		f.log.Warn("deleting draw placeholder", "err", err)
+	}
+	return bot.ReplyEphemeralFollowup(s, i, content)
+}
+
+// drawTarget returns the newest card lock even when it cannot be drawn, so the
+// caller can be told why.
+func drawTarget(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
+	var newest *cs.LoadedLock
+	for idx := range locks {
+		lock := &locks[idx]
+		if !lock.IsCardLock() {
+			continue
+		}
+		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
+			continue
+		}
+		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
+			newest = lock
+		}
+	}
+	return newest
+}
+
+// drawBlockedMessage explains why a card lock cannot be drawn. An empty
+// message means the lock is drawable.
+func drawBlockedMessage(lock *cs.LoadedLock, freezeSince map[cs.ID]time.Time, now time.Time) string {
+	if lock == nil {
+		return "You have no active card lock to draw from."
+	}
+	name := lockName(lock)
+	switch {
+	case lock.IsFrozen():
+		if since, ok := freezeSince[lock.ID]; ok && !since.IsZero() {
+			return fmt.Sprintf("**%s** is frozen since %s. Drawing is unavailable until it is unfrozen.",
+				name, relativeTimestamp(since))
+		}
+		return fmt.Sprintf("**%s** is frozen. Drawing is unavailable until it is unfrozen.", name)
+	case lock.IsReady():
+		return fmt.Sprintf("**%s** is ready to unlock. There is nothing left to draw.", name)
+	case lock.DrawsAvailable() == 0:
+		if wait := lock.NextPickIn(); wait > 0 {
+			return fmt.Sprintf("No draws available yet for **%s**. Next draw %s.",
+				name, relativeTimestamp(now.Add(wait)))
+		}
+		return fmt.Sprintf("No draws available right now for **%s**.", name)
+	default:
+		return ""
+	}
 }
 
 func (f *Feature) handleDrawComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
