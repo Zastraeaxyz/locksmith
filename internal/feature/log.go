@@ -149,7 +149,7 @@ func logOutput(target *logTarget, entries []cs.LogEntry, truncated, full bool, n
 			b.WriteString("**Draws in the last 5 minutes**")
 		}
 		for _, entry := range entries {
-			fmt.Fprintf(&b, "\n• <t:%d:t> %s", entry.Timestamp.Unix(), cs.LogEntryText(entry))
+			fmt.Fprintf(&b, "\n• %s %s", shortTimestamp(entry.Timestamp.Time), cs.LogEntryText(entry))
 		}
 	}
 
@@ -169,10 +169,10 @@ func previousText(lock *cs.RecentLock) string {
 	fmt.Fprintf(&b, "Previous lock · %s\n", cs.UnlockReasonString(lock.UnlockReason))
 	fmt.Fprintf(&b, "Lockee: %s · Keyholder: %s\n", displayOr(lock.Lockee, "unknown"), displayOr(lock.Keyholder, "unknown"))
 	if !lock.LoadTime.IsZero() {
-		fmt.Fprintf(&b, "Loaded: <t:%d:f>\n", lock.LoadTime.Unix())
+		fmt.Fprintf(&b, "Loaded: %s\n", fullTimestamp(lock.LoadTime.Time))
 	}
 	if !lock.UnlockTime.IsZero() {
-		fmt.Fprintf(&b, "Unlocked: <t:%d:f>\n", lock.UnlockTime.Unix())
+		fmt.Fprintf(&b, "Unlocked: %s\n", fullTimestamp(lock.UnlockTime.Time))
 	}
 	fmt.Fprintf(&b, "Duration: %s\n", cs.FormatDuration(time.Duration(lock.LockDuration)*time.Second))
 	if lock.Rating != 0 {

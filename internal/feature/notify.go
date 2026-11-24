@@ -98,7 +98,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	draws := lock.DrawsAvailable()
 
 	if draws > n.LastPicks {
-		if err := sendDM(s, userID, notificationText(lock)); err != nil {
+		if err := sendDM(s, userID, notificationText(lock, now)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			n.NextCheckAt = now.Add(5 * time.Minute)
 			_ = f.store.Subscribe(ctx, &n)
@@ -132,7 +132,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	}
 }
 
-func notificationText(lock *cs.LoadedLock) string {
+func notificationText(lock *cs.LoadedLock, now time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "**%s**: %s available", lockName(lock), drawsPhrase(lock.DrawsAvailable()))
 	if lock.MaxPicks > 0 {
@@ -154,13 +154,13 @@ func notificationText(lock *cs.LoadedLock) string {
 	}
 
 	if wait := lock.NextPickIn(); wait > 0 {
-		fmt.Fprintf(&b, "\nNext draw in %s.", cs.FormatShortDuration(wait))
+		fmt.Fprintf(&b, "\nNext draw %s.", relativeTimestamp(now.Add(wait)))
 	}
-	if lock.NextCheckInIn() > 0 {
-		fmt.Fprintf(&b, "\nCheck-in in %s.", cs.FormatShortDuration(lock.NextCheckInIn()))
+	if next := lock.NextCheckInIn(); next > 0 {
+		fmt.Fprintf(&b, "\nCheck-in %s.", relativeTimestamp(now.Add(next)))
 	}
-	if lock.NextHygieneIn() > 0 {
-		fmt.Fprintf(&b, "\nHygiene unlock in %s.", cs.FormatShortDuration(lock.NextHygieneIn()))
+	if hygiene := lock.NextHygieneIn(); hygiene > 0 {
+		fmt.Fprintf(&b, "\nHygiene unlock %s.", relativeTimestamp(now.Add(hygiene)))
 	}
 	b.WriteString("\nRun `/lock draw` in the server.")
 	return b.String()

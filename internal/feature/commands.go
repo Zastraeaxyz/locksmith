@@ -303,8 +303,8 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 	if wait := lock.NextPickIn(); wait > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
-			"Draw notifications are on for **%s**. Next draw opens in %s.",
-			name, cs.FormatShortDuration(wait),
+			"Draw notifications are on for **%s**. Next draw opens %s.",
+			name, relativeTimestamp(f.now().Add(wait)),
 		))
 	}
 	return sendEphemeral(s, i, fmt.Sprintf(

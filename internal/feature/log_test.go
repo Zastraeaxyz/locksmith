@@ -101,18 +101,25 @@ func TestNotificationText(t *testing.T) {
 		Deck:           cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
 	}
 
-	text := notificationText(lock)
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	text := notificationText(lock, now)
 	for _, want := range []string{
 		"Test card",
 		"2 draws available",
 		"of 3",
 		"3 cards left",
 		"2 greens needed",
-		"Next draw in 2m",
+		"Next draw <t:",
+		":R>",
 		"/lock draw",
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("notificationText missing %q:\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{"2m", "in 2 minutes"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("notificationText still contains %q:\n%s", bad, text)
 		}
 	}
 }

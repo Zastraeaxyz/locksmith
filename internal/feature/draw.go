@@ -387,7 +387,7 @@ func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
 	if wait <= 0 {
 		return ""
 	}
-	return fmt.Sprintf("Next draw <t:%d:R>", now.Add(wait).Unix())
+	return fmt.Sprintf("Next draw %s", relativeTimestamp(now.Add(wait)))
 }
 
 func drawSummary(entries []drawEntry) string {
