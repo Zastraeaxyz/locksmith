@@ -173,7 +173,9 @@ func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note 
 			b.WriteString("**Draws in the last 5 minutes**")
 		}
 		for _, entry := range entries {
-			fmt.Fprintf(&b, "\n• %s %s", shortTimestamp(entry.Timestamp.Time), cs.LogEntryText(entry))
+			fmt.Fprintf(&b, "\n• %s ", shortTimestamp(entry.Timestamp.Time))
+			writeCardLetterEmoji(&b, entry.Card)
+			b.WriteString(cs.LogEntryText(entry))
 		}
 	}
 
@@ -181,6 +183,19 @@ func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note 
 		b.WriteString("\n\nTruncated at the newest entries.")
 	}
 	return b.String()
+}
+
+// writeCardLetterEmoji writes the emoji for a ChastiSafe log card letter, if
+// the entry names a known card.
+func writeCardLetterEmoji(b *strings.Builder, letter string) {
+	if letter == "" {
+		return
+	}
+	card, ok := cs.CardForLetter(letter[0])
+	if !ok {
+		return
+	}
+	writeCardEmoji(b, card)
 }
 
 func previousText(lock *cs.RecentLock) string {

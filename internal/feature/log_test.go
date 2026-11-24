@@ -132,6 +132,29 @@ func TestDrawsAvailableZero(t *testing.T) {
 	}
 }
 
+func TestLogOutputUsesCardEmoji(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 5, 0, time.UTC)}
+	entries := []cs.LogEntry{
+		{Timestamp: stamp, Actor: 2, EventType: 6, Card: "g"},
+		{Timestamp: stamp, Actor: 1, EventType: 6, Card: "d"},
+		{Timestamp: stamp, Actor: 1, EventType: 6, Card: "i", Amount: 4},
+	}
+
+	out := logOutput("", entries, false, false, "")
+	for _, want := range []string{
+		"<:green:1574875078255185957>",
+		"<:double:1574875037104742581>",
+		"<:dice:1574875035749982268>",
+		"<t:",
+		"Lockee picked",
+		"Keyholder picked",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
+	}
+}
+
 func TestLogHeaderUsesCompactStatus(t *testing.T) {
 	now := statusTestNow()
 	lock := statusTestLock("a", "Lock A", now)
