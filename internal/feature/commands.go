@@ -50,8 +50,53 @@ func lockCommand() *discordgo.ApplicationCommand {
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "load",
+				Description: "Load a lock from a ChastiSafe share link",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "link",
+						Description: "ChastiSafe share link or template ID",
+						Required:    true,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "draw",
 				Description: "Draw the next card from your card lock",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "checkin",
+				Description: "Record a required check-in",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "ref",
+						Description: "Lock ID or name",
+						Required:    false,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "public",
+						Description: "Post the reply publicly instead of privately",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "share",
+				Description: "Share a lock template so someone can load it",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionString,
+						Name:        "ref",
+						Description: "Lock template ID or name",
+						Required:    true,
+					},
+				},
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -172,11 +217,50 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 		"chastisafe_user", identity.User,
 		"chastisafe_id", identity.ID.String(),
 	)
-	return sendEphemeral(s, i, fmt.Sprintf(
-		"Logged in as **%s** (ID `%s`).\n"+
-			"Use `/lock status`, `/lock draw`, and `/lock notify`.",
-		identity.User, identity.ID,
-	))
+	return sendEphemeral(s, i, loginWelcomeText(identity))
+}
+
+// loginWelcomeText is the private onboarding reply after a successful login.
+func loginWelcomeText(identity *cs.Identity) string {
+	name := "your ChastiSafe account"
+	id := ""
+	if identity != nil {
+		if trimmed := strings.TrimSpace(identity.User); trimmed != "" {
+			name = "**" + trimmed + "**"
+		}
+		id = identity.ID.String()
+	}
+
+	var b strings.Builder
+	if id != "" {
+		fmt.Fprintf(&b, "Logged in as %s (ID `%s`).\n\n", name, id)
+	} else {
+		fmt.Fprintf(&b, "Logged in as %s.\n\n", name)
+	}
+
+	b.WriteString("**Commands**\n")
+	b.WriteString("• `/lock status` shows your active locks, draws left, timers, and next check-in.\n")
+	b.WriteString("• `/lock load link:<share link>` starts a lock a keyholder shared with you. I ask for the lock code and passcode privately.\n")
+	b.WriteString("• `/lock draw` opens the draw board. Press **Draw** to pick a card.\n")
+	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
+	b.WriteString("• `/lock notify [enabled]` turns DM reminders for draws and check-ins on or off.\n")
+	b.WriteString("• `/lock log [full] [ref]` shows draws from the last 5 minutes, or the full log.\n")
+	b.WriteString("• `/lock share ref:<template>` lets keyholders post a lock with load buttons.\n")
+	b.WriteString("• `/history` lists your completed locks.\n")
+	b.WriteString("• `/profile`, `/rules`, and `/kinks` view or edit your markdown documents.\n")
+	b.WriteString("• `/locksmith` posts the install links so you can share them.\n")
+	b.WriteString("• `/logout` removes your saved code.\n\n")
+
+	b.WriteString("**Example: load, draw, check in**\n")
+	b.WriteString("1. `/lock load link:https://chastisafe.com/#l/1234` and enter the code you set on your device.\n")
+	b.WriteString("2. `/lock status` shows the lock and how many draws are ready.\n")
+	b.WriteString("3. `/lock draw` opens the board. Press **Draw** until the lock is ready to open.\n")
+	b.WriteString("4. When a check-in is due, press **Check-in** on the reminder DM, or run `/lock checkin`.\n\n")
+
+	b.WriteString("**Keyholders**\n")
+	b.WriteString("Create the template on chastisafe.com, then run `/lock share ref:My Lock`. ")
+	b.WriteString("The post has **Load with Locksmith** for bot users and **Open in ChastiSafe** for everyone else.")
+	return b.String()
 }
 
 // loginFailureReason buckets a failed login for anonymous analytics. The
@@ -224,8 +308,15 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 	switch sub.Name {
 	case "status":
 		return f.handleLockStatus(ctx, s, i, sub.Options)
+	case "load":
+		link, _ := stringOption(sub.Options, "link")
+		return f.handleLockLoad(ctx, s, i, link)
 	case "draw":
 		return f.handleLockDraw(ctx, s, i)
+	case "checkin":
+		return f.handleLockCheckin(ctx, s, i, sub.Options)
+	case "share":
+		return f.handleLockShare(ctx, s, i, sub.Options)
 	case "notify":
 		enabled := true
 		if len(sub.Options) > 0 {

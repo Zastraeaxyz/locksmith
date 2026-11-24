@@ -100,11 +100,13 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(rulesCommand(), f.handleRulesCommand)
 	b.AddCommand(kinksCommand(), f.handleKinksCommand)
 	b.AddModal(modalNamespace, f.handleLoginModal)
+	b.AddModal(loadNamespace, f.handleLoadModal)
 	b.AddModal(store.DocumentProfile, f.handleProfileModal)
 	b.AddModal(store.DocumentRules, f.handleRulesModal)
 	b.AddModal(store.DocumentKinks, f.handleKinksModal)
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
 	b.AddComponent(checkinNamespace, f.handleCheckinComponent)
+	b.AddComponent(shareNamespace, f.handleShareComponent)
 }
 
 func (f *Feature) clientFor(ctx context.Context, userID string) (*cs.Client, *store.Credential, error) {

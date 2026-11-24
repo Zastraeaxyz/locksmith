@@ -333,3 +333,46 @@ func TestFindLockFallbacks(t *testing.T) {
 		t.Fatalf("card fallback = %+v, want card", got)
 	}
 }
+
+func TestPickCheckinLock(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	locks := []cs.LoadedLock{
+		{ID: "no-checkin", Type: "timer", LockName: "No checkin", LockeeID: "me"},
+		{ID: "later", Type: "timer", LockName: "Later", LockeeID: "me", CheckInPeriod: 1440, TimeToNextCheckIn: 7200},
+		{ID: "sooner", Type: "card", LockName: "Sooner", LockeeID: "me", CheckInPeriod: 1440, TimeToNextCheckIn: 600},
+		{ID: "overdue", Type: "timer", LockName: "Overdue", LockeeID: "me", CheckInPeriod: 1440},
+		{ID: "ready", Type: "timer", LockName: "Ready", LockeeID: "me", CheckInPeriod: 1440, ReadyToUnlock: true},
+	}
+
+	got, note, err := pickCheckinLock("", locks, now)
+	if err != nil {
+		t.Fatalf("no ref: %v", err)
+	}
+	if got == nil || got.ID != "overdue" {
+		t.Fatalf("no ref picked %+v, want overdue", got)
+	}
+	if note == "" {
+		t.Fatal("multiple check-in locks should add a note")
+	}
+
+	got, note, err = pickCheckinLock("later", locks, now)
+	if err != nil {
+		t.Fatalf("by name: %v", err)
+	}
+	if got == nil || got.ID != "later" || note != "" {
+		t.Fatalf("by name = %+v, note %q", got, note)
+	}
+
+	if _, _, err := pickCheckinLock("no-checkin", locks, now); err == nil {
+		t.Fatal("lock without check-ins should fail")
+	}
+	if _, _, err := pickCheckinLock("ready", locks, now); err == nil {
+		t.Fatal("ready lock should fail")
+	}
+	if _, _, err := pickCheckinLock("missing", locks, now); err == nil {
+		t.Fatal("unknown lock should fail")
+	}
+	if _, _, err := pickCheckinLock("", []cs.LoadedLock{{ID: "plain", Type: "timer"}}, now); err == nil {
+		t.Fatal("no check-in locks should fail")
+	}
+}

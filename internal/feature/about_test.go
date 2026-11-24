@@ -31,9 +31,12 @@ func TestLocksmithEmbed(t *testing.T) {
 
 	for _, want := range []string{
 		"/lock status",
+		"/lock load",
 		"/lock draw",
+		"/lock checkin",
 		"/lock notify",
 		"/lock log",
+		"/lock share",
 		"chastisafe.com",
 		"group DMs",
 	} {

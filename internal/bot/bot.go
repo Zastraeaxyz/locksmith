@@ -383,7 +383,13 @@ func Edit(s *discordgo.Session, i *discordgo.InteractionCreate, content string) 
 // EditMessage replaces a deferred reply with an optional embed and component
 // row. A non-nil empty components slice removes any existing components.
 func EditMessage(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent) error {
-	edit := &discordgo.WebhookEdit{}
+	return EditMessageAllowed(s, i, content, embeds, components, nil)
+}
+
+// EditMessageAllowed replaces a deferred reply and sets explicit allowed
+// mentions, so user-authored embed text cannot ping the channel.
+func EditMessageAllowed(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, allowedMentions *discordgo.MessageAllowedMentions) error {
+	edit := &discordgo.WebhookEdit{AllowedMentions: allowedMentions}
 	if content != "" {
 		edit.Content = &content
 	}
