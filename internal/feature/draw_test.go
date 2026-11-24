@@ -49,7 +49,7 @@ func TestRenderDrawLog(t *testing.T) {
 	}
 }
 
-func TestDrawEmbed(t *testing.T) {
+func TestDrawEmbedRunning(t *testing.T) {
 	lock := &cs.LoadedLock{
 		Type:           "card",
 		LockName:       "Test card",
@@ -67,38 +67,72 @@ func TestDrawEmbed(t *testing.T) {
 	}
 	session.setLock(lock)
 
-	embed := session.embed(lock, "A note.")
+	embed := session.embed(lock, "A note.", false)
 	if embed.Title != "Test card" {
 		t.Fatalf("title = %q", embed.Title)
 	}
-	if embed.Author == nil || !strings.Contains(embed.Author.Name, "Zastraea") {
-		t.Fatalf("author = %+v", embed.Author)
+	if embed.Author != nil {
+		t.Fatalf("author should be omitted: %+v", embed.Author)
 	}
-	if embed.Footer == nil || !strings.Contains(embed.Footer.Text, "Raven") {
-		t.Fatalf("footer = %+v", embed.Footer)
+	if embed.Footer != nil {
+		t.Fatalf("footer should be omitted: %+v", embed.Footer)
 	}
-	if !strings.Contains(embed.Description, "A note.") {
-		t.Fatalf("description = %q", embed.Description)
+	if len(embed.Fields) != 0 {
+		t.Fatalf("fields should be empty: %d", len(embed.Fields))
 	}
-	if len(embed.Fields) != 4 {
-		t.Fatalf("fields = %d", len(embed.Fields))
+	for _, want := range []string{"0 used · 2 left", "A note."} {
+		if !strings.Contains(embed.Description, want) {
+			t.Errorf("description missing %q:\n%s", want, embed.Description)
+		}
 	}
+	if strings.Contains(embed.Description, "Next draw") {
+		t.Errorf("running board should not show a next draw:\n%s", embed.Description)
+	}
+}
 
-	values := map[string]string{}
-	for _, field := range embed.Fields {
-		values[field.Name] = field.Value
+func TestDrawEmbedFinishedSummary(t *testing.T) {
+	lock := &cs.LoadedLock{
+		Type:     "card",
+		LockName: "Test card",
+		Picks:    0,
+		Wait:     3271,
 	}
-	if values["Draws available"] != "2 of 3" {
-		t.Errorf("draws = %q", values["Draws available"])
+	session := &drawSession{lockName: "Test card"}
+	session.setLock(lock)
+	session.add(drawEntry{card: cs.CardYellowP3})
+	session.add(drawEntry{card: cs.CardRed})
+
+	embed := session.embed(lock, "", true)
+	for _, want := range []string{
+		"1. Yellow +3",
+		"2. Red card",
+		"2 used · 0 left",
+		"Next draw <t:",
+		"- yellow +3, red",
+		"Totals: 1 red, 0 green",
+	} {
+		if !strings.Contains(embed.Description, want) {
+			t.Errorf("description missing %q:\n%s", want, embed.Description)
+		}
 	}
-	if values["Cards left"] != "3" {
-		t.Errorf("cards = %q", values["Cards left"])
+}
+
+func TestCardLogLabel(t *testing.T) {
+	tests := map[cs.Card]string{
+		cs.CardYellowP1: "Yellow +1",
+		cs.CardYellowP2: "Yellow +2",
+		cs.CardYellowP3: "Yellow +3",
+		cs.CardYellowM1: "Yellow -1",
+		cs.CardYellowM2: "Yellow -2",
+		cs.CardYellowRN: "Yellow +?",
+		cs.CardYellowUK: "Yellow +?",
+		cs.CardGreen:    "Green card",
+		cs.CardRed:      "Red card",
 	}
-	if values["Greens needed"] != "2" {
-		t.Errorf("greens = %q", values["Greens needed"])
-	}
-	if values["Next draw"] != "in 2m" {
-		t.Errorf("next = %q", values["Next draw"])
+	for card, want := range tests {
+		if got := cardLogLabel(card); got != want {
+			t.Errorf("cardLogLabel(%q) = %q, want %q", card, got, want)
+		}
 	}
 }
 

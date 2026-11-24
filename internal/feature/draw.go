@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -140,12 +139,12 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 
 	if lock.DrawsAvailable() == 0 {
 		return bot.EditMessage(s, i, "",
-			[]*discordgo.MessageEmbed{session.embed(lock, drawWaitingNote(lock))}, nil)
+			[]*discordgo.MessageEmbed{session.embed(lock, "", true)}, nil)
 	}
 
 	f.putSession(session)
 	return bot.EditMessage(s, i, "",
-		[]*discordgo.MessageEmbed{session.embed(lock, "")}, drawButtons(session.id))
+		[]*discordgo.MessageEmbed{session.embed(lock, "", false)}, drawButtons(session.id))
 }
 
 func (f *Feature) handleDrawComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
@@ -225,7 +224,7 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, lock, false, "The lock is frozen. Drawing stopped.")
 	case lock.DrawsAvailable() == 0:
 		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, lock, false, drawWaitingNote(lock))
+		return f.renderBoard(s, i, session, lock, false, "")
 	}
 
 	result, err := client.Pick(ctx, lock.ID)
@@ -248,16 +247,9 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 
 	keep := updated.DrawsAvailable() > 0 && !updated.IsReady() && !updated.IsFrozen()
 	var note string
-	switch {
-	case result.Done:
+	if result.Done {
 		note = "That was the last draw. The lock is ready to unlock."
 		keep = false
-	case updated.DrawsAvailable() == 0:
-		if wait := updated.NextPickIn(); wait > 0 {
-			note = fmt.Sprintf("No draws left right now. Next draw in %s.", cs.FormatShortDuration(wait))
-		} else {
-			note = "No draws left right now."
-		}
 	}
 
 	if !keep {
@@ -280,7 +272,7 @@ func (f *Feature) drawStop(ctx context.Context, s *discordgo.Session, i *discord
 }
 
 func (f *Feature) renderBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock, buttons bool, note string) error {
-	embed := session.embed(lock, note)
+	embed := session.embed(lock, note, !buttons)
 	components := []discordgo.MessageComponent{}
 	if buttons {
 		components = drawButtons(session.id)
@@ -288,43 +280,36 @@ func (f *Feature) renderBoard(s *discordgo.Session, i *discordgo.InteractionCrea
 	return bot.EditMessage(s, i, "", []*discordgo.MessageEmbed{embed}, components)
 }
 
-func (s *drawSession) embed(lock *cs.LoadedLock, note string) *discordgo.MessageEmbed {
+func (s *drawSession) embed(lock *cs.LoadedLock, note string, finished bool) *discordgo.MessageEmbed {
 	entries, lastCard, stored := s.snapshot()
 	if lock == nil {
 		lock = stored
 	}
 
-	description := renderDrawLog(entries)
+	var b strings.Builder
+	b.WriteString(renderDrawLog(entries))
+	b.WriteString("\n\n")
+	b.WriteString(drawStatsLine(lock, len(entries)))
+	if next := nextDrawLine(lock, time.Now()); next != "" {
+		b.WriteString("\n")
+		b.WriteString(next)
+	}
 	if note != "" {
-		description += "\n\n" + note
+		b.WriteString("\n\n")
+		b.WriteString(note)
+	}
+	if finished && len(entries) > 0 {
+		b.WriteString("\n\n")
+		b.WriteString(drawSummary(entries))
+		b.WriteString("\n")
+		b.WriteString(totalsLine(entries))
 	}
 
-	embed := &discordgo.MessageEmbed{
+	return &discordgo.MessageEmbed{
 		Title:       s.lockName,
-		Author:      &discordgo.MessageEmbedAuthor{Name: s.ownerName + "'s draw"},
-		Description: truncate(description, drawDescriptionLimit),
+		Description: truncate(b.String(), drawDescriptionLimit),
 		Color:       cardColor(lastCard),
-		Footer:      &discordgo.MessageEmbedFooter{Text: s.footer()},
 	}
-	if lock != nil {
-		embed.Fields = []*discordgo.MessageEmbedField{
-			{Name: "Draws available", Value: drawsField(lock), Inline: true},
-			{Name: "Cards left", Value: strconv.Itoa(cardsLeft(lock)), Inline: true},
-			{Name: "Greens needed", Value: strconv.Itoa(lock.GreensRemaining()), Inline: true},
-			{Name: "Next draw", Value: nextDrawField(lock), Inline: true},
-		}
-	}
-	return embed
-}
-
-func (s *drawSession) footer() string {
-	if s.keyholderID != "" {
-		if s.keyholderName != "" {
-			return fmt.Sprintf("Only %s and their keyholder (%s) can use these buttons.", s.ownerName, s.keyholderName)
-		}
-		return fmt.Sprintf("Only %s and their keyholder can use these buttons.", s.ownerName)
-	}
-	return fmt.Sprintf("Only %s can use these buttons.", s.ownerName)
 }
 
 func drawButtons(sessionID string) []discordgo.MessageComponent {
@@ -362,7 +347,7 @@ func renderDrawLog(entries []drawEntry) string {
 		fmt.Fprintf(&b, "\n%d. ", idx+1)
 		switch {
 		case entry.card != "":
-			b.WriteString(entry.card.Label())
+			b.WriteString(cardLogLabel(entry.card))
 			if entry.card == cs.CardDice && entry.dice > 0 {
 				fmt.Fprintf(&b, " (%d)", entry.dice)
 			}
@@ -378,39 +363,115 @@ func renderDrawLog(entries []drawEntry) string {
 	return b.String()
 }
 
-func drawWaitingNote(lock *cs.LoadedLock) string {
-	if lock == nil {
-		return "No draws available right now."
+func drawStatsLine(lock *cs.LoadedLock, used int) string {
+	left := 0
+	if lock != nil {
+		left = lock.DrawsAvailable()
 	}
-	if wait := lock.NextPickIn(); wait > 0 {
-		return fmt.Sprintf("No draws available yet. Next draw in %s.", cs.FormatShortDuration(wait))
-	}
-	return "No draws available right now."
+	return fmt.Sprintf("%d used · %d left", used, left)
 }
 
-func drawsField(lock *cs.LoadedLock) string {
+func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
 	if lock == nil {
-		return "0"
+		return ""
 	}
-	value := strconv.Itoa(lock.DrawsAvailable())
-	if lock.MaxPicks > 0 {
-		value += " of " + strconv.Itoa(lock.MaxPicks)
-	}
-	return value
-}
-
-func nextDrawField(lock *cs.LoadedLock) string {
 	switch {
-	case lock == nil:
-		return "unknown"
 	case lock.IsReady():
-		return "ready to unlock"
+		return "Ready to unlock."
 	case lock.IsFrozen():
-		return "frozen"
-	case lock.NextPickIn() > 0:
-		return "in " + cs.FormatShortDuration(lock.NextPickIn())
+		return "Frozen."
+	case lock.DrawsAvailable() > 0:
+		return ""
+	}
+	wait := lock.NextPickIn()
+	if wait <= 0 {
+		return ""
+	}
+	return fmt.Sprintf("Next draw <t:%d:R>", now.Add(wait).Unix())
+}
+
+func drawSummary(entries []drawEntry) string {
+	const maxSummary = 24
+	start := 0
+	if len(entries) > maxSummary {
+		start = len(entries) - maxSummary
+	}
+
+	names := make([]string, 0, len(entries)-start)
+	for _, entry := range entries[start:] {
+		names = append(names, drawSummaryName(entry))
+	}
+	line := "- " + strings.Join(names, ", ")
+	if start > 0 {
+		line = fmt.Sprintf("- … %d earlier, ", start) + strings.Join(names, ", ")
+	}
+	return line
+}
+
+func drawSummaryName(entry drawEntry) string {
+	if entry.card == "" {
+		if entry.dice > 0 {
+			return fmt.Sprintf("dice %d", entry.dice)
+		}
+		return "draw"
+	}
+	switch entry.card {
+	case cs.CardGreen:
+		return "green"
+	case cs.CardRed:
+		return "red"
+	case cs.CardYellowP1:
+		return "yellow +1"
+	case cs.CardYellowP2:
+		return "yellow +2"
+	case cs.CardYellowP3:
+		return "yellow +3"
+	case cs.CardYellowM1:
+		return "yellow -1"
+	case cs.CardYellowM2:
+		return "yellow -2"
+	case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
+		return "yellow +?"
+	case cs.CardDice:
+		if entry.dice > 0 {
+			return fmt.Sprintf("dice %d", entry.dice)
+		}
+		return "dice"
 	default:
-		return "now"
+		name := strings.ToLower(entry.card.Label())
+		return strings.TrimSuffix(name, " card")
+	}
+}
+
+func totalsLine(entries []drawEntry) string {
+	reds, greens := 0, 0
+	for _, entry := range entries {
+		switch entry.card {
+		case cs.CardRed:
+			reds++
+		case cs.CardGreen:
+			greens++
+		}
+	}
+	return fmt.Sprintf("Totals: %d red, %d green", reds, greens)
+}
+
+func cardLogLabel(card cs.Card) string {
+	switch card {
+	case cs.CardYellowP1:
+		return "Yellow +1"
+	case cs.CardYellowP2:
+		return "Yellow +2"
+	case cs.CardYellowP3:
+		return "Yellow +3"
+	case cs.CardYellowM1:
+		return "Yellow -1"
+	case cs.CardYellowM2:
+		return "Yellow -2"
+	case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
+		return "Yellow +?"
+	default:
+		return card.Label()
 	}
 }
 
