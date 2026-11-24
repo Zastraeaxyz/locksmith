@@ -50,9 +50,6 @@ func Load() (*Config, error) {
 	if cfg.Token == "" {
 		return nil, errors.New("DISCORD_TOKEN is required")
 	}
-	if cfg.GuildID == "" {
-		return nil, errors.New("GUILD_ID is required")
-	}
 	return cfg, nil
 }
 

@@ -4,6 +4,10 @@ A small Discord bot for ChastiSafe locks. Each member stores their own
 developer code once, then runs `/lock` commands against their own account. The
 bot never shares one member's code with another.
 
+Locksmith supports both install types: server install and Discord's native
+user install. With user install, the same commands work in DMs with the bot, in
+group DMs, and in servers where Locksmith is not a member.
+
 The ChastiSafe client lives in
 [`github.com/zastraeaxyz/chastisafe-go`](https://github.com/zastraeaxyz/chastisafe-go).
 
@@ -40,12 +44,31 @@ Draw and Stop are available to the lockee and their keyholder; anyone else
 gets a private refusal. The board keeps a running log of the cards drawn, and
 the buttons are removed when the session stops or the draws run out.
 
+## Install and contexts
+
+Server install is the normal bot invite. User install authorizes the app to
+your Discord account, which enables the same commands in bot DMs, group DMs,
+and servers where Locksmith has not been added.
+
+```
+https://discord.com/oauth2/authorize?client_id=1574588415783997481&integration_type=1&scope=applications.commands
+```
+
+Commands are registered globally with guild, bot DM, and private channel
+contexts. Global command changes can take up to an hour to appear after a
+deploy. When `GUILD_ID` is set, the bot also registers guild-scoped commands in
+that server so updates there are immediate.
+
+In a DM only the lockee can press the draw buttons because the keyholder
+cannot see the DM. In a group DM or a server, the keyholder can see and press
+them.
+
 ## Configuration
 
 | Variable | Required | Default | Purpose |
 | --- | --- | --- | --- |
 | `DISCORD_TOKEN` | yes | | Bot token |
-| `GUILD_ID` | yes | | The one server the bot serves |
+| `GUILD_ID` | no | | Home server for instant guild-scoped commands; global commands are always registered |
 | `DATABASE_PATH` | no | `./data/locksmith.db` | SQLite database |
 | `STORE_KEY` | no | generated key file | 32-byte base64 or hex key for encrypted codes |
 | `CHASTISAFE_BASE_URL` | no | `https://chastisafe.com/api-v1` | API root |

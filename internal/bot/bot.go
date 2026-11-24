@@ -140,23 +140,56 @@ func (b *Bot) needsSync() bool {
 
 func (b *Bot) syncCommands(s *discordgo.Session) error {
 	b.mu.RLock()
-	cmds := make([]*discordgo.ApplicationCommand, 0, len(b.commands))
+	base := make([]*discordgo.ApplicationCommand, 0, len(b.commands))
 	for _, cmd := range b.commands {
-		cmds = append(cmds, cmd)
+		base = append(base, cmd)
 	}
 	guildID := b.guildID
 	b.mu.RUnlock()
 
-	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
+	sort.Slice(base, func(i, j int) bool { return base[i].Name < base[j].Name })
 
-	if guildID == "" {
-		return errors.New("guild id is required for command registration")
+	var errs []error
+	if guildID != "" {
+		if _, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, base); err != nil {
+			errs = append(errs, fmt.Errorf("overwriting guild commands: %w", err))
+		} else {
+			b.Log.Info("registered guild commands", "count", len(base), "guild_id", guildID)
+		}
 	}
-	if _, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, guildID, cmds); err != nil {
-		return fmt.Errorf("overwriting guild commands: %w", err)
+
+	global := make([]*discordgo.ApplicationCommand, 0, len(base))
+	for _, cmd := range base {
+		global = append(global, globalCommand(cmd))
 	}
-	b.Log.Info("registered guild commands", "count", len(cmds), "guild_id", guildID)
-	return nil
+	if _, err := s.ApplicationCommandBulkOverwrite(s.State.User.ID, "", global); err != nil {
+		errs = append(errs, fmt.Errorf("overwriting global commands: %w", err))
+	} else {
+		b.Log.Info("registered global commands",
+			"count", len(global),
+			"note", "user install; may take up to an hour to appear",
+		)
+	}
+	return errors.Join(errs...)
+}
+
+// globalCommand returns a copy of cmd with user install enabled. Guild
+// commands cannot be user-installable, so the base definitions are registered
+// separately for the optional home guild.
+func globalCommand(cmd *discordgo.ApplicationCommand) *discordgo.ApplicationCommand {
+	clone := *cmd
+	integrationTypes := []discordgo.ApplicationIntegrationType{
+		discordgo.ApplicationIntegrationGuildInstall,
+		discordgo.ApplicationIntegrationUserInstall,
+	}
+	contexts := []discordgo.InteractionContextType{
+		discordgo.InteractionContextGuild,
+		discordgo.InteractionContextBotDM,
+		discordgo.InteractionContextPrivateChannel,
+	}
+	clone.IntegrationTypes = &integrationTypes
+	clone.Contexts = &contexts
+	return &clone
 }
 
 func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCreate) {
