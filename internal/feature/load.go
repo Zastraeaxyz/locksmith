@@ -140,6 +140,7 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	f.track("load success")
+	f.forgetLockAutocomplete(userID)
 	f.log.Info("lock loaded",
 		"user_id", userID,
 		"template_id", templateID.String(),

@@ -53,6 +53,10 @@ type Feature struct {
 	checkinLead    time.Duration
 	limiter        *loginLimiter
 
+	templateCache *ttlCache[[]cs.Template]
+	loadedCache   *ttlCache[[]cs.LoadedLock]
+	recentCache   *ttlCache[[]cs.RecentLock]
+
 	sessionsMu sync.Mutex
 	sessions   map[string]*drawSession
 }
@@ -81,6 +85,9 @@ func New(opts Options) *Feature {
 		notifyInterval: opts.NotifyInterval,
 		checkinLead:    opts.CheckinLead,
 		limiter:        newLoginLimiter(5, 10*time.Minute, opts.Now),
+		templateCache:  newTTLCache[[]cs.Template](autocompleteCacheTTL, opts.Now),
+		loadedCache:    newTTLCache[[]cs.LoadedLock](autocompleteCacheTTL, opts.Now),
+		recentCache:    newTTLCache[[]cs.RecentLock](autocompleteCacheTTL, opts.Now),
 		sessions:       make(map[string]*drawSession),
 	}
 }
@@ -107,6 +114,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
 	b.AddComponent(checkinNamespace, f.handleCheckinComponent)
 	b.AddComponent(shareNamespace, f.handleShareComponent)
+	b.AddAutocomplete("lock", f.handleLockAutocomplete)
 }
 
 func (f *Feature) clientFor(ctx context.Context, userID string) (*cs.Client, *store.Credential, error) {
@@ -203,6 +211,20 @@ func (f *Feature) forget(ctx context.Context, userID string) error {
 	return nil
 }
 
+// forgetAutocomplete drops every cached autocomplete result for a member, so a
+// changed credential or a new login never reuses another account's data.
+func (f *Feature) forgetAutocomplete(userID string) {
+	f.templateCache.forget(userID)
+	f.forgetLockAutocomplete(userID)
+}
+
+// forgetLockAutocomplete drops cached lock lists for a member, so a newly
+// loaded lock appears in suggestions immediately.
+func (f *Feature) forgetLockAutocomplete(userID string) {
+	f.loadedCache.forget(userID)
+	f.recentCache.forget(userID)
+}
+
 // apiFailure turns a ChastiSafe error into a private reply. An unauthorized
 // response also drops the saved code so the member cannot loop on it.
 func (f *Feature) apiFailure(ctx context.Context, userID string, err error) string {
@@ -212,6 +234,7 @@ func (f *Feature) apiFailure(ctx context.Context, userID string, err error) stri
 				f.log.Warn("deleting a rejected credential", "user_id", userID, "err", delErr)
 			}
 		}
+		f.forgetAutocomplete(userID)
 		f.log.Info("chastisafe rejected a saved code", "user_id", userID)
 		return "ChastiSafe rejected your saved code. Run `/login` again."
 	}

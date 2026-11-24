@@ -40,10 +40,10 @@ public embed with the user-install button and a link to this repository.
 | `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
 | `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; asks privately for the lock code and keyholder passcode |
 | `/lock draw` | Opens a public draw board with Draw and Stop buttons; only you and your keyholder can press them |
-| `/lock checkin [ref] [public]` | Records a required check-in on demand |
-| `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith and Open in ChastiSafe buttons |
+| `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
+| `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith and Open in ChastiSafe buttons; `ref` suggests your own templates |
 | `/lock notify [enabled]` | Turns draw and check-in notifications on (default) or off |
-| `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply |
+| `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |
@@ -52,6 +52,10 @@ public embed with the user-install button and a link to this repository.
 | `/kinks view [user]` | Shares a member's kinks document |
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
 | `/locksmith` | Posts a short overview with the recommended user-install link and a link to this repository |
+
+Every `ref` option autocompletes. `/lock checkin` lists your locks that need a
+check-in, `/lock share` lists your own templates, and `/lock log` lists active
+and previous locks. Typing a name or ID still works.
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
 is ephemeral, and the value is never echoed. Discord does not offer masked

@@ -23,6 +23,9 @@ type ModalHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.I
 // ComponentHandler runs a message component interaction (buttons, selects).
 type ComponentHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
 
+// AutocompleteHandler answers an autocomplete interaction.
+type AutocompleteHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
+
 // Tracker records anonymous usage events.
 type Tracker interface {
 	Track(name string, data map[string]any)
@@ -35,13 +38,14 @@ type Bot struct {
 
 	guildID string
 
-	mu                sync.RWMutex
-	commands          map[string]*discordgo.ApplicationCommand
-	commandHandlers   map[string]CommandHandler
-	modalHandlers     map[string]ModalHandler
-	componentHandlers map[string]ComponentHandler
-	tracker           Tracker
-	synced            bool
+	mu                   sync.RWMutex
+	commands             map[string]*discordgo.ApplicationCommand
+	commandHandlers      map[string]CommandHandler
+	modalHandlers        map[string]ModalHandler
+	componentHandlers    map[string]ComponentHandler
+	autocompleteHandlers map[string]AutocompleteHandler
+	tracker              Tracker
+	synced               bool
 }
 
 // New creates a bot session for one guild.
@@ -62,13 +66,14 @@ func New(token, guildID string, log *slog.Logger) (*Bot, error) {
 	s.ShouldReconnectOnError = true
 
 	b := &Bot{
-		Session:           s,
-		Log:               log,
-		guildID:           strings.TrimSpace(guildID),
-		commands:          make(map[string]*discordgo.ApplicationCommand),
-		commandHandlers:   make(map[string]CommandHandler),
-		modalHandlers:     make(map[string]ModalHandler),
-		componentHandlers: make(map[string]ComponentHandler),
+		Session:              s,
+		Log:                  log,
+		guildID:              strings.TrimSpace(guildID),
+		commands:             make(map[string]*discordgo.ApplicationCommand),
+		commandHandlers:      make(map[string]CommandHandler),
+		modalHandlers:        make(map[string]ModalHandler),
+		componentHandlers:    make(map[string]ComponentHandler),
+		autocompleteHandlers: make(map[string]AutocompleteHandler),
 	}
 	s.AddHandler(b.handleReady)
 	s.AddHandler(b.handleInteraction)
@@ -98,6 +103,14 @@ func (b *Bot) AddComponent(namespace string, handler ComponentHandler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.componentHandlers[namespace] = handler
+}
+
+// AddAutocomplete registers an autocomplete handler for a top-level command
+// name, for example "lock" handles autocomplete requests for /lock.
+func (b *Bot) AddAutocomplete(commandName string, handler AutocompleteHandler) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.autocompleteHandlers[commandName] = handler
 }
 
 // SetTracker records anonymous usage events for every handled interaction.
@@ -250,6 +263,16 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		}
 		b.Track("component "+namespace, nil)
 		b.run("component "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
+	case discordgo.InteractionApplicationCommandAutocomplete:
+		name := i.ApplicationCommandData().Name
+		b.mu.RLock()
+		handler := b.autocompleteHandlers[name]
+		b.mu.RUnlock()
+		if handler == nil {
+			return
+		}
+		// Autocomplete fires on every keystroke, so it is not tracked.
+		b.run("autocomplete "+name, func(ctx context.Context) error { return handler(ctx, s, i) })
 	}
 }
 
@@ -315,6 +338,18 @@ func Username(i *discordgo.InteractionCreate) string {
 		return i.User.Username
 	}
 	return ""
+}
+
+// Autocomplete answers an autocomplete interaction. Discord requires a
+// response even when there is nothing to suggest, so choices may be empty.
+func Autocomplete(s *discordgo.Session, i *discordgo.InteractionCreate, choices []*discordgo.ApplicationCommandOptionChoice) error {
+	if choices == nil {
+		choices = []*discordgo.ApplicationCommandOptionChoice{}
+	}
+	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionApplicationCommandAutocompleteResult,
+		Data: &discordgo.InteractionResponseData{Choices: choices},
+	})
 }
 
 // Defer acknowledges an interaction and buys three seconds of headroom for

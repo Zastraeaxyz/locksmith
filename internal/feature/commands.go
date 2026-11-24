@@ -72,10 +72,11 @@ func lockCommand() *discordgo.ApplicationCommand {
 				Description: "Record a required check-in",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "ref",
-						Description: "Lock ID or name",
-						Required:    false,
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick a lock that needs a check-in",
+						Required:     false,
+						Autocomplete: true,
 					},
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
@@ -91,10 +92,11 @@ func lockCommand() *discordgo.ApplicationCommand {
 				Description: "Share a lock template so someone can load it",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "ref",
-						Description: "Lock template ID or name",
-						Required:    true,
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick one of your lock templates",
+						Required:     true,
+						Autocomplete: true,
 					},
 				},
 			},
@@ -123,10 +125,11 @@ func lockCommand() *discordgo.ApplicationCommand {
 						Required:    false,
 					},
 					{
-						Type:        discordgo.ApplicationCommandOptionString,
-						Name:        "ref",
-						Description: "Lock ID or name, including previous locks",
-						Required:    false,
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick an active or previous lock",
+						Required:     false,
+						Autocomplete: true,
 					},
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
@@ -211,6 +214,7 @@ func (f *Feature) handleLoginModal(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	f.loginSucceeded(userID)
+	f.forgetAutocomplete(userID)
 	f.track("login success")
 	f.log.Info("login stored",
 		"user_id", userID,
@@ -293,6 +297,7 @@ func (f *Feature) handleLogoutCommand(ctx context.Context, s *discordgo.Session,
 		}
 		return err
 	}
+	f.forgetAutocomplete(userID)
 	f.log.Info("logout", "user_id", userID)
 	return sendEphemeral(s, i, "Your saved ChastiSafe code has been removed.")
 }
