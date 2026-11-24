@@ -68,7 +68,7 @@ func locksmithDescription() string {
 	b.WriteString("Your ChastiSafe locks, inside Discord.\n\n")
 	b.WriteString("• `/lock status` shows your active locks, timers, and check-ins\n")
 	b.WriteString("• `/lock draw` opens a public draw board with Draw and Stop\n")
-	b.WriteString("• `/lock notify` DMs you when a draw is ready\n")
+	b.WriteString("• `/lock notify` DMs you when a draw or check-in is due\n")
 	b.WriteString("• `/lock log` shows recent draws or the full history\n")
 	b.WriteString("• `/history` lists your completed locks\n")
 	b.WriteString("• `/profile view`, `/rules view`, and `/kinks view` share your markdown documents\n\n")

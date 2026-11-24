@@ -56,12 +56,12 @@ func lockCommand() *discordgo.ApplicationCommand {
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "notify",
-				Description: "Get pinged when a new draw is ready",
+				Description: "Get pinged for draws and check-ins",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
 						Name:        "enabled",
-						Description: "Turn draw notifications on or off (default on)",
+						Description: "Turn notifications on or off (default on)",
 						Required:    false,
 					},
 				},
@@ -280,7 +280,7 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 			f.log.Warn("unsubscribing", "user_id", userID, "err", err)
 			return sendEphemeral(s, i, "I could not update your notifications. Try again in a moment.")
 		}
-		return sendEphemeral(s, i, "Draw notifications are off.")
+		return sendEphemeral(s, i, "Notifications are off.")
 	}
 
 	client, cred, err := f.clientFor(ctx, userID)
@@ -297,7 +297,6 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		_ = f.store.Unsubscribe(ctx, userID)
 		return sendEphemeral(s, i, "You have no active card lock to watch, so notifications are off.")
 	}
-
 	next := f.now().Add(10 * time.Second)
 	if lock.DrawsAvailable() == 0 {
 		if wait := lock.NextPickIn(); wait > 0 {
@@ -321,18 +320,18 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	f.log.Info("notify subscribed", "user_id", userID, "lock_id", lock.ID.String())
 	if draws := lock.DrawsAvailable(); draws > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
-			"Draw notifications are on for **%s**. You have %s available now.",
+			"Notifications are on for **%s**. You have %s available now.",
 			name, drawsPhrase(draws),
 		))
 	}
 	if wait := lock.NextPickIn(); wait > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
-			"Draw notifications are on for **%s**. Next draw opens %s.",
+			"Notifications are on for **%s**. Next draw opens %s.",
 			name, relativeTimestamp(f.now().Add(wait)),
 		))
 	}
 	return sendEphemeral(s, i, fmt.Sprintf(
-		"Draw notifications are on for **%s**. I will ping you when I see a fresh draw.",
+		"Notifications are on for **%s**. I will ping you when I see a fresh draw or a check-in is due.",
 		name,
 	))
 }

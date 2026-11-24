@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 3
+const schemaVersion = 4
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -40,6 +40,12 @@ type Notification struct {
 	LastNotifiedAt time.Time
 	NextCheckAt    time.Time
 	CreatedAt      time.Time
+
+	// CheckinDueAt is the check-in moment the reminder state refers to.
+	CheckinDueAt time.Time
+	// CheckinStage is the last reminder sent for that moment: "lead",
+	// "final", or "overdue". Empty means no reminder yet.
+	CheckinStage string
 }
 
 // Document kinds stored in user_documents.
@@ -174,6 +180,17 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if version < 4 {
+		if _, err := tx.ExecContext(ctx,
+			`ALTER TABLE notifications ADD COLUMN checkin_due_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`ALTER TABLE notifications ADD COLUMN checkin_stage TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}
@@ -239,18 +256,26 @@ func (s *Store) Subscribe(ctx context.Context, n *Notification) error {
 	if n == nil {
 		return errors.New("store: notification is nil")
 	}
+	checkinDue := int64(0)
+	if !n.CheckinDueAt.IsZero() {
+		checkinDue = n.CheckinDueAt.Unix()
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO notifications (
-			discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at
-		) VALUES (?, ?, ?, ?, ?, ?)
+			discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
+			next_check_at, checkin_due_at, checkin_stage
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(discord_user_id) DO UPDATE SET
 			lock_id = excluded.lock_id,
 			last_draws = excluded.last_draws,
 			last_picks = excluded.last_picks,
 			last_notified_at = excluded.last_notified_at,
-			next_check_at = excluded.next_check_at`,
+			next_check_at = excluded.next_check_at,
+			checkin_due_at = excluded.checkin_due_at,
+			checkin_stage = excluded.checkin_stage`,
 		n.DiscordUserID, n.LockID, n.LastDraws, n.LastPicks,
 		n.LastNotifiedAt.Unix(), n.NextCheckAt.Unix(),
+		checkinDue, n.CheckinStage,
 	)
 	return err
 }
@@ -263,10 +288,21 @@ func (s *Store) Unsubscribe(ctx context.Context, discordUserID string) error {
 	return err
 }
 
+// ClearCheckin resets the check-in reminder state for one watched lock, so the
+// next cycle can notify again.
+func (s *Store) ClearCheckin(ctx context.Context, discordUserID, lockID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications
+		SET checkin_due_at = 0, checkin_stage = ''
+		WHERE discord_user_id = ? AND lock_id = ?`, discordUserID, lockID)
+	return err
+}
+
 // Notification returns a member's subscription, or (nil, nil).
 func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notification, error) {
 	row := s.db.QueryRowContext(ctx, `
-		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at, created_at
+		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
+			next_check_at, created_at, checkin_due_at, checkin_stage
 		FROM notifications WHERE discord_user_id = ?`, discordUserID)
 	return scanNotification(row)
 }
@@ -274,7 +310,8 @@ func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notifi
 // DueNotifications returns every subscription whose next check is due.
 func (s *Store) DueNotifications(ctx context.Context, now time.Time) ([]Notification, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at, next_check_at, created_at
+		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
+			next_check_at, created_at, checkin_due_at, checkin_stage
 		FROM notifications
 		WHERE next_check_at <= ?
 		ORDER BY next_check_at`, now.Unix())
@@ -305,9 +342,10 @@ func scanNotification(row scanner) (*Notification, error) {
 	var (
 		n                                Notification
 		lastNotified, nextCheck, created int64
+		checkinDue                       int64
 	)
 	err := row.Scan(&n.DiscordUserID, &n.LockID, &n.LastDraws, &n.LastPicks,
-		&lastNotified, &nextCheck, &created)
+		&lastNotified, &nextCheck, &created, &checkinDue, &n.CheckinStage)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -317,6 +355,10 @@ func scanNotification(row scanner) (*Notification, error) {
 	n.LastNotifiedAt = time.Unix(lastNotified, 0).UTC()
 	n.NextCheckAt = time.Unix(nextCheck, 0).UTC()
 	n.CreatedAt = time.Unix(created, 0).UTC()
+	n.CheckinDueAt = time.Time{}
+	if checkinDue != 0 {
+		n.CheckinDueAt = time.Unix(checkinDue, 0).UTC()
+	}
 	return &n, nil
 }
 

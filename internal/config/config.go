@@ -23,6 +23,7 @@ type Config struct {
 	LogLevel       slog.Level
 	UmamiSiteID    string
 	UmamiEndpoint  string
+	CheckinLead    time.Duration
 }
 
 // Load reads configuration from .env (when present) and the environment.
@@ -38,6 +39,14 @@ func Load() (*Config, error) {
 		interval = 5 * time.Second
 	}
 
+	checkinLead, err := time.ParseDuration(envOr("CHECKIN_LEAD_TIME", "1h"))
+	if err != nil {
+		return nil, fmt.Errorf("CHECKIN_LEAD_TIME: %w", err)
+	}
+	if checkinLead < 0 {
+		checkinLead = 0
+	}
+
 	cfg := &Config{
 		Token:          strings.TrimSpace(os.Getenv("DISCORD_TOKEN")),
 		GuildID:        strings.TrimSpace(os.Getenv("GUILD_ID")),
@@ -49,6 +58,7 @@ func Load() (*Config, error) {
 		LogLevel:       parseLevel(os.Getenv("LOG_LEVEL")),
 		UmamiSiteID:    strings.TrimSpace(os.Getenv("UMAMI_SITE_ID")),
 		UmamiEndpoint:  strings.TrimSpace(os.Getenv("UMAMI_ENDPOINT")),
+		CheckinLead:    checkinLead,
 	}
 
 	if cfg.Token == "" {

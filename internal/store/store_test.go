@@ -86,6 +86,8 @@ func TestNotificationDue(t *testing.T) {
 
 	n.LastPicks = 3
 	n.NextCheckAt = now.Add(time.Hour)
+	n.CheckinDueAt = now.Add(2 * time.Hour)
+	n.CheckinStage = "lead"
 	if err := st.Subscribe(ctx, n); err != nil {
 		t.Fatalf("Subscribe update: %v", err)
 	}
@@ -103,6 +105,20 @@ func TestNotificationDue(t *testing.T) {
 	}
 	if got == nil || got.LastPicks != 3 {
 		t.Fatalf("LastPicks = %+v", got)
+	}
+	if !got.CheckinDueAt.Equal(n.CheckinDueAt) || got.CheckinStage != "lead" {
+		t.Fatalf("check-in state = %+v", got)
+	}
+
+	if err := st.ClearCheckin(ctx, "user-1", "lock-1"); err != nil {
+		t.Fatalf("ClearCheckin: %v", err)
+	}
+	got, err = st.Notification(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Notification after ClearCheckin: %v", err)
+	}
+	if !got.CheckinDueAt.IsZero() || got.CheckinStage != "" {
+		t.Fatalf("check-in state after clear = %+v", got)
 	}
 
 	if err := st.Unsubscribe(ctx, "user-1"); err != nil {

@@ -74,6 +74,7 @@ func run() error {
 		BaseURL:        cfg.BaseURL,
 		Logger:         log,
 		NotifyInterval: cfg.NotifyInterval,
+		CheckinLead:    cfg.CheckinLead,
 	})
 	feat.Register(b)
 

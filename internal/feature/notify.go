@@ -88,48 +88,101 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
+	now := f.now()
+	sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, &n)
+
 	if lock.IsFrozen() {
-		n.NextCheckAt = f.now().Add(15 * time.Minute)
-		_ = f.store.Subscribe(ctx, &n)
+		n.NextCheckAt = now.Add(15 * time.Minute)
+		if err := f.store.Subscribe(ctx, &n); err != nil {
+			f.log.Warn("updating notification", "user_id", userID, "err", err)
+		}
 		return
 	}
 
-	now := f.now()
 	draws := lock.DrawsAvailable()
 
+	drawFailed := false
 	if draws > n.LastPicks {
 		if err := sendDM(s, userID, notificationText(lock, now)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
-			n.NextCheckAt = now.Add(5 * time.Minute)
-			_ = f.store.Subscribe(ctx, &n)
-			return
+			drawFailed = true
+			sendFailed = true
+		} else {
+			n.LastNotifiedAt = now
+			f.log.Info("draw notification sent",
+				"user_id", userID,
+				"lock_id", lock.ID.String(),
+				"draws", draws,
+			)
 		}
-		n.LastNotifiedAt = now
-		f.log.Info("draw notification sent",
-			"user_id", userID,
-			"lock_id", lock.ID.String(),
-			"draws", draws,
-		)
 	}
 
 	n.LockID = lock.ID.String()
-	n.LastDraws = string(lock.Draws)
-	n.LastPicks = draws
-
-	wait := lock.NextPickIn()
-	switch {
-	case draws > 0 && lock.MaxPicks > 0 && draws >= lock.MaxPicks:
-		// Capped: wait for the member to draw before more can accrue.
-		n.NextCheckAt = now.Add(5 * time.Minute)
-	case wait > 0:
-		n.NextCheckAt = now.Add(wait + 2*time.Second)
-	default:
-		n.NextCheckAt = now.Add(5 * time.Minute)
+	if !drawFailed {
+		n.LastDraws = string(lock.Draws)
+		n.LastPicks = draws
 	}
+	n.NextCheckAt = f.nextNotificationCheck(lock, now, draws, sendFailed)
 
 	if err := f.store.Subscribe(ctx, &n); err != nil {
 		f.log.Warn("updating notification", "user_id", userID, "err", err)
 	}
+}
+
+// notifyCheckin sends any due check-in reminder and records the cycle stage.
+// It reports whether a send failed, so the scheduler retries soon.
+func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.LoadedLock, chastisafeID string, now time.Time, n *store.Notification) bool {
+	if n == nil {
+		return false
+	}
+	if lock.CheckInPeriod <= 0 || lock.LockeeID.String() != chastisafeID {
+		n.CheckinDueAt = time.Time{}
+		n.CheckinStage = ""
+		return false
+	}
+
+	reminder := f.checkinReminderFor(lock, now, *n)
+	if reminder.Send == "" {
+		n.CheckinDueAt = reminder.Due
+		n.CheckinStage = reminder.Stage
+		return false
+	}
+
+	if err := sendDMWithComponents(s, userID,
+		checkinText(lock, reminder.Send, reminder.Due),
+		checkinButtons(lock),
+	); err != nil {
+		f.log.Warn("sending check-in notification", "user_id", userID, "err", err)
+		return true
+	}
+
+	n.CheckinDueAt = reminder.Due
+	n.CheckinStage = reminder.Stage
+	f.log.Info("check-in notification sent",
+		"user_id", userID,
+		"lock_id", lock.ID.String(),
+		"stage", reminder.Stage,
+	)
+	return false
+}
+
+// nextNotificationCheck picks the next poll for draws and check-ins.
+func (f *Feature) nextNotificationCheck(lock *cs.LoadedLock, now time.Time, draws int, retry bool) time.Time {
+	next := now.Add(5 * time.Minute)
+	if wait := lock.NextPickIn(); wait > 0 {
+		next = now.Add(wait + 2*time.Second)
+		if draws > 0 && lock.MaxPicks > 0 && draws >= lock.MaxPicks {
+			// Capped: wait for the member to draw before more can accrue.
+			next = now.Add(5 * time.Minute)
+		}
+	}
+	if retry {
+		next = now.Add(5 * time.Minute)
+	}
+	if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && checkin.Before(next) {
+		next = checkin
+	}
+	return next
 }
 
 func notificationText(lock *cs.LoadedLock, now time.Time) string {
@@ -210,6 +263,10 @@ func plural(count int) string {
 }
 
 func sendDM(s *discordgo.Session, userID, content string) error {
+	return sendDMWithComponents(s, userID, content, nil)
+}
+
+func sendDMWithComponents(s *discordgo.Session, userID, content string, components []discordgo.MessageComponent) error {
 	channel, err := s.UserChannelCreate(userID)
 	if err != nil {
 		return fmt.Errorf("opening DM channel: %w", err)
@@ -217,6 +274,9 @@ func sendDM(s *discordgo.Session, userID, content string) error {
 	if channel == nil || channel.ID == "" {
 		return errors.New("no DM channel returned")
 	}
-	_, err = s.ChannelMessageSend(channel.ID, content)
+	_, err = s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
+		Content:    content,
+		Components: components,
+	})
 	return err
 }

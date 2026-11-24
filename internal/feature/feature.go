@@ -37,6 +37,7 @@ type Options struct {
 	Logger         *slog.Logger
 	Now            func() time.Time
 	NotifyInterval time.Duration
+	CheckinLead    time.Duration
 }
 
 // Feature implements the per-member ChastiSafe commands and notifications.
@@ -49,6 +50,7 @@ type Feature struct {
 	log            *slog.Logger
 	now            func() time.Time
 	notifyInterval time.Duration
+	checkinLead    time.Duration
 	limiter        *loginLimiter
 
 	sessionsMu sync.Mutex
@@ -77,6 +79,7 @@ func New(opts Options) *Feature {
 		log:            opts.Logger,
 		now:            opts.Now,
 		notifyInterval: opts.NotifyInterval,
+		checkinLead:    opts.CheckinLead,
 		limiter:        newLoginLimiter(5, 10*time.Minute, opts.Now),
 		sessions:       make(map[string]*drawSession),
 	}
@@ -101,6 +104,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddModal(store.DocumentRules, f.handleRulesModal)
 	b.AddModal(store.DocumentKinks, f.handleKinksModal)
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
+	b.AddComponent(checkinNamespace, f.handleCheckinComponent)
 }
 
 func (f *Feature) clientFor(ctx context.Context, userID string) (*cs.Client, *store.Credential, error) {
