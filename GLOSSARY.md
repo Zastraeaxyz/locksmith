@@ -12,13 +12,20 @@ A Discord user known to Locksmith, identified by Discord user ID. A member owns
 at most one credential, one subscription, and one document of each kind.
 _Avoid_: User, account, owner
 
+**Role**:
+A member's relationship to one lock: lockee, keyholder, or both for a self lock.
+Every lock has exactly one lockee and one keyholder, and roles are never global.
+_Avoid_: Type, position
+
 **Lockee**:
-The member a lock is on.
+The one member a lock is on. The role is per lock: the same member can be a
+lockee on one lock and a keyholder on another.
 _Avoid_: Owner, user
 
 **Keyholder**:
-The person who controls a lock, identified by the Discord account linked to
-their ChastiSafe account. May be the lockee itself or someone else.
+The one person who controls a given lock, identified by the Discord account
+linked to their ChastiSafe account. The role is per lock, so a keyholder may
+also be the lockee of another lock.
 _Avoid_: Owner, master
 
 **External keyholder**:
