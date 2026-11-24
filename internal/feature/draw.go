@@ -106,7 +106,9 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	if userID == "" {
 		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
 	}
-	if err := bot.Defer(s, i, false); err != nil {
+	// Acknowledge privately so a blocked draw never shows up in the channel. The
+	// board is posted publicly once a drawable lock is found.
+	if err := bot.DeferEphemeral(s, i); err != nil {
 		return err
 	}
 
@@ -147,15 +149,28 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	session.setLock(lock)
 
 	f.putSession(session)
-	return bot.EditMessage(s, i, "",
-		[]*discordgo.MessageEmbed{session.embed(lock, "", false)}, drawButtons(session.id))
+	return f.postDrawBoard(s, i, session, lock)
 }
 
+// replyDrawPrivate replaces the private placeholder, so only the caller sees
+// why drawing is unavailable.
 func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
+	return bot.Edit(s, i, content)
+}
+
+// postDrawBoard replaces the private placeholder with the public draw board.
+func (f *Feature) postDrawBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock) error {
+	_, err := s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
+		Embeds:     []*discordgo.MessageEmbed{session.embed(lock, "", false)},
+		Components: drawButtons(session.id),
+	})
+	if err != nil {
+		return bot.Edit(s, i, "I could not post the draw board here. Check my permissions in this channel.")
+	}
 	if err := bot.DeleteResponse(s, i); err != nil {
 		f.log.Warn("deleting draw placeholder", "err", err)
 	}
-	return bot.ReplyEphemeralFollowup(s, i, content)
+	return nil
 }
 
 // drawTarget returns the newest card lock even when it cannot be drawn, so the
