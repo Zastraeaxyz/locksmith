@@ -7,6 +7,13 @@
 - After committing deploy the bot with `mise deploy`
 - Always commit as `Author: zastraeaxyz <zastraea@proton.me>`
 
+## Analytics
+
+- Every new command, modal, and component must be tracked with the Umami
+  analytics so we can see usage. `Bot.handleInteraction` tracks them centrally,
+  so register handlers through `AddCommand`, `AddModal`, or `AddComponent` and
+  keep interaction labels free of IDs or user content.
+
 ## Time and dates
 
 - Always render a specific moment in time with Discord timestamp syntax, for

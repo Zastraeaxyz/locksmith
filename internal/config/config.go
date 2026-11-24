@@ -21,6 +21,8 @@ type Config struct {
 	Port           string
 	NotifyInterval time.Duration
 	LogLevel       slog.Level
+	UmamiSiteID    string
+	UmamiEndpoint  string
 }
 
 // Load reads configuration from .env (when present) and the environment.
@@ -45,6 +47,8 @@ func Load() (*Config, error) {
 		Port:           envOr("PORT", "8080"),
 		NotifyInterval: interval,
 		LogLevel:       parseLevel(os.Getenv("LOG_LEVEL")),
+		UmamiSiteID:    strings.TrimSpace(os.Getenv("UMAMI_SITE_ID")),
+		UmamiEndpoint:  strings.TrimSpace(os.Getenv("UMAMI_ENDPOINT")),
 	}
 
 	if cfg.Token == "" {

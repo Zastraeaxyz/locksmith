@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"locksmith/internal/analytics"
 	"locksmith/internal/bot"
 	"locksmith/internal/config"
 	"locksmith/internal/cryptobox"
@@ -53,6 +54,18 @@ func run() error {
 	b, err := bot.New(cfg.Token, cfg.GuildID, log)
 	if err != nil {
 		return err
+	}
+
+	if tracker := analytics.New(analytics.Options{
+		SiteID:   cfg.UmamiSiteID,
+		Endpoint: cfg.UmamiEndpoint,
+		Logger:   log,
+	}); tracker != nil {
+		defer tracker.Close()
+		b.SetTracker(tracker)
+		log.Info("anonymous analytics enabled", "endpoint", cfg.UmamiEndpoint)
+	} else {
+		log.Info("anonymous analytics disabled")
 	}
 
 	feat := feature.New(feature.Options{

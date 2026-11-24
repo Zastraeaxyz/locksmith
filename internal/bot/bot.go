@@ -23,6 +23,11 @@ type ModalHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.I
 // ComponentHandler runs a message component interaction (buttons, selects).
 type ComponentHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
 
+// Tracker records anonymous usage events.
+type Tracker interface {
+	Track(name string, data map[string]any)
+}
+
 // Bot owns the Discord session and dispatches interactions.
 type Bot struct {
 	Session *discordgo.Session
@@ -35,6 +40,7 @@ type Bot struct {
 	commandHandlers   map[string]CommandHandler
 	modalHandlers     map[string]ModalHandler
 	componentHandlers map[string]ComponentHandler
+	tracker           Tracker
 	synced            bool
 }
 
@@ -92,6 +98,14 @@ func (b *Bot) AddComponent(namespace string, handler ComponentHandler) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.componentHandlers[namespace] = handler
+}
+
+// SetTracker records anonymous usage events for every handled interaction.
+// A nil tracker disables tracking.
+func (b *Bot) SetTracker(t Tracker) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.tracker = t
 }
 
 // Run validates the token, connects the gateway, and blocks until ctx is done.
@@ -202,6 +216,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
+		b.track(commandLabel(i))
 		b.run(name, func(ctx context.Context) error { return handler(ctx, s, i) })
 	case discordgo.InteractionModalSubmit:
 		namespace := customIDNamespace(i.ModalSubmitData().CustomID)
@@ -211,6 +226,7 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
+		b.track("modal " + namespace)
 		b.run("modal "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
 	case discordgo.InteractionMessageComponent:
 		namespace := customIDNamespace(i.MessageComponentData().CustomID)
@@ -220,8 +236,34 @@ func (b *Bot) handleInteraction(s *discordgo.Session, i *discordgo.InteractionCr
 		if handler == nil {
 			return
 		}
+		b.track("component " + namespace)
 		b.run("component "+namespace, func(ctx context.Context) error { return handler(ctx, s, i) })
 	}
+}
+
+// commandLabel names a slash command, including its subcommand when present,
+// for example "/lock status".
+func commandLabel(i *discordgo.InteractionCreate) string {
+	data := i.ApplicationCommandData()
+	if len(data.Options) > 0 {
+		opt := data.Options[0]
+		if opt.Type == discordgo.ApplicationCommandOptionSubCommand ||
+			opt.Type == discordgo.ApplicationCommandOptionSubCommandGroup {
+			return "/" + data.Name + " " + opt.Name
+		}
+	}
+	return "/" + data.Name
+}
+
+// track records an anonymous usage event. Labels only: no IDs or content.
+func (b *Bot) track(name string) {
+	b.mu.RLock()
+	tracker := b.tracker
+	b.mu.RUnlock()
+	if tracker == nil {
+		return
+	}
+	tracker.Track(name, nil)
 }
 
 func (b *Bot) run(label string, fn func(context.Context) error) {

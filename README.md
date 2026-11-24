@@ -110,10 +110,24 @@ markdown.
 | `NOTIFY_INTERVAL` | no | `30s` | Scheduler wake-up interval |
 | `PORT` | no | `8080` | Health server port |
 | `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, `error` |
+| `UMAMI_SITE_ID` | no | | Umami website ID for anonymous usage statistics |
+| `UMAMI_ENDPOINT` | no | | Umami base URL, for example `https://umami.example.com` |
 
 When `STORE_KEY` is empty the bot creates `<database dir>/locksmith.key` with
 mode 0600. Back up that file with the database; losing it makes stored codes
 unreadable.
+
+## Analytics
+
+When both `UMAMI_SITE_ID` and `UMAMI_ENDPOINT` are set, Locksmith sends
+anonymous usage events to Umami: one event per handled command, modal, and
+component, such as `/lock status` or `component draw`. Events carry only that
+label. Discord user IDs, usernames, guild IDs, lock IDs, profiles, rules, and
+stored codes are never sent, so statistics cannot be tied to a member.
+
+Statistics are best effort: events are queued and posted in the background, and
+a slow or unavailable Umami instance never delays or fails an interaction.
+Local runs stay out of production statistics when the two variables are empty.
 
 ## Development
 
