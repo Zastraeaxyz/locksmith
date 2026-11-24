@@ -92,9 +92,11 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddCommand(locksmithCommand(), f.handleLocksmithCommand)
 	b.AddCommand(profileCommand(), f.handleProfileCommand)
 	b.AddCommand(rulesCommand(), f.handleRulesCommand)
+	b.AddCommand(kinksCommand(), f.handleKinksCommand)
 	b.AddModal(modalNamespace, f.handleLoginModal)
 	b.AddModal(store.DocumentProfile, f.handleProfileModal)
 	b.AddModal(store.DocumentRules, f.handleRulesModal)
+	b.AddModal(store.DocumentKinks, f.handleKinksModal)
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
 }
 

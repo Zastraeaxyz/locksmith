@@ -45,6 +45,8 @@ public embed with the user-install button and a link to this repository.
 | `/profile edit` | Opens a prefilled modal to set your profile |
 | `/rules view [user]` | Shares a member's personal rules of play |
 | `/rules edit` | Opens a prefilled modal to set your rules |
+| `/kinks view [user]` | Shares a member's kinks document |
+| `/kinks edit` | Opens a prefilled modal to set your kinks |
 | `/locksmith` | Posts a short overview with the recommended user-install link and a link to this repository |
 
 `/login` uses a Discord modal: the code is entered in a private form, the reply
@@ -83,16 +85,17 @@ In a DM only the lockee can press the draw buttons because the keyholder
 cannot see the DM. In a group DM or a server, the keyholder can see and press
 them.
 
-## Profiles and rules
+## Profiles, rules, and kinks
 
-`/profile` and `/rules` are Locksmith documents, separate from ChastiSafe.
-Each member can keep one profile and one rules-of-play document as plain
-markdown.
+`/profile`, `/rules`, and `/kinks` are Locksmith documents, separate from
+ChastiSafe. Each member can keep one profile, one rules-of-play, and one kinks
+document as plain markdown.
 
-- `/profile view [user]` and `/rules view [user]` post the document publicly in
-  an embed.
-- `/profile edit` and `/rules edit` open a private modal prefilled with the
-  current markdown. Submitting an empty modal clears the document.
+- `/profile view [user]`, `/rules view [user]`, and `/kinks view [user]` post
+  the document publicly in an embed.
+- `/profile edit`, `/rules edit`, and `/kinks edit` open a private modal
+  prefilled with the current markdown. Submitting an empty modal clears the
+  document.
 - Documents are limited to 4000 characters, which is Discord's modal limit.
 - Mentions in a document are suppressed, so `@everyone` cannot ping.
 - `user` accepts a Discord user ID, a ChastiSafe username such as `zastraea`
@@ -123,8 +126,8 @@ unreadable.
 When both `UMAMI_SITE_ID` and `UMAMI_ENDPOINT` are set, Locksmith sends
 anonymous usage events to Umami: one event per handled command, modal, and
 component, such as `/lock status` or `component draw`. Events carry only that
-label. Discord user IDs, usernames, guild IDs, lock IDs, profiles, rules, and
-stored codes are never sent, so statistics cannot be tied to a member.
+label. Discord user IDs, usernames, guild IDs, lock IDs, profiles, rules, kinks,
+and stored codes are never sent, so statistics cannot be tied to a member.
 
 Statistics are best effort: events are queued and posted in the background, and
 a slow or unavailable Umami instance never delays or fails an interaction.

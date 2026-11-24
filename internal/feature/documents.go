@@ -34,6 +34,15 @@ func rulesCommand() *discordgo.ApplicationCommand {
 	)
 }
 
+func kinksCommand() *discordgo.ApplicationCommand {
+	return documentCommand(
+		"kinks",
+		"View or edit your kinks",
+		"Share a kinks list",
+		"Set your kinks markdown",
+	)
+}
+
 func documentCommand(name, description, viewDescription, editDescription string) *discordgo.ApplicationCommand {
 	return &discordgo.ApplicationCommand{
 		Name:        name,
@@ -67,6 +76,10 @@ func (f *Feature) handleProfileCommand(ctx context.Context, s *discordgo.Session
 
 func (f *Feature) handleRulesCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	return f.handleDocumentCommand(ctx, s, i, store.DocumentRules)
+}
+
+func (f *Feature) handleKinksCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return f.handleDocumentCommand(ctx, s, i, store.DocumentKinks)
 }
 
 func (f *Feature) handleDocumentCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, kind string) error {
@@ -173,6 +186,10 @@ func (f *Feature) handleRulesModal(ctx context.Context, s *discordgo.Session, i 
 	return f.handleDocumentModal(ctx, s, i, store.DocumentRules)
 }
 
+func (f *Feature) handleKinksModal(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	return f.handleDocumentModal(ctx, s, i, store.DocumentKinks)
+}
+
 func (f *Feature) handleDocumentModal(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, kind string) error {
 	userID := bot.UserID(i)
 	if userID == "" {
@@ -269,10 +286,14 @@ func noMentions() *discordgo.MessageAllowedMentions {
 }
 
 func documentColor(kind string) int {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return 0x9B59B6
+	case store.DocumentKinks:
+		return 0xEB459E
+	default:
+		return 0x5865F2
 	}
-	return 0x5865F2
 }
 
 func truncateRunes(text string, limit int) string {
@@ -284,31 +305,47 @@ func truncateRunes(text string, limit int) string {
 }
 
 func kindLabel(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "rules of play"
+	case store.DocumentKinks:
+		return "kinks"
+	default:
+		return "profile"
 	}
-	return "profile"
 }
 
 func modalTitle(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "Edit rules of play"
+	case store.DocumentKinks:
+		return "Edit kinks"
+	default:
+		return "Edit profile"
 	}
-	return "Edit profile"
 }
 
 func textInputLabel(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "Rules of play (markdown)"
+	case store.DocumentKinks:
+		return "Kinks (markdown)"
+	default:
+		return "Profile (markdown)"
 	}
-	return "Profile (markdown)"
 }
 
 func emptySelfText(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "You have not set rules of play yet. Use `/rules edit`."
+	case store.DocumentKinks:
+		return "You have not set your kinks yet. Use `/kinks edit`."
+	default:
+		return "You have not set a profile yet. Use `/profile edit`."
 	}
-	return "You have not set a profile yet. Use `/profile edit`."
 }
 
 func emptyOtherText(kind, userID string) string {
@@ -316,15 +353,23 @@ func emptyOtherText(kind, userID string) string {
 }
 
 func savedText(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "Your rules of play have been saved."
+	case store.DocumentKinks:
+		return "Your kinks have been saved."
+	default:
+		return "Your profile has been saved."
 	}
-	return "Your profile has been saved."
 }
 
 func clearedText(kind string) string {
-	if kind == store.DocumentRules {
+	switch kind {
+	case store.DocumentRules:
 		return "Your rules of play have been cleared."
+	case store.DocumentKinks:
+		return "Your kinks have been cleared."
+	default:
+		return "Your profile has been cleared."
 	}
-	return "Your profile has been cleared."
 }

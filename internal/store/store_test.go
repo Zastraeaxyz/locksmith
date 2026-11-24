@@ -148,6 +148,22 @@ func TestUserDocumentRoundTrip(t *testing.T) {
 	if err := st.SaveDocument(ctx, rules); err != nil {
 		t.Fatalf("SaveDocument rules: %v", err)
 	}
+	kinks := &UserDocument{
+		DiscordUserID: "user-1",
+		Kind:          DocumentKinks,
+		Handle:        "zastraea",
+		Content:       "kinks here",
+	}
+	if err := st.SaveDocument(ctx, kinks); err != nil {
+		t.Fatalf("SaveDocument kinks: %v", err)
+	}
+	kinksGot, err := st.Document(ctx, "user-1", DocumentKinks)
+	if err != nil {
+		t.Fatalf("Document kinks: %v", err)
+	}
+	if kinksGot == nil || kinksGot.Content != "kinks here" {
+		t.Fatalf("kinks = %+v", kinksGot)
+	}
 	profileStill, err := st.Document(ctx, "user-1", DocumentProfile)
 	if err != nil {
 		t.Fatalf("Document profile: %v", err)
@@ -184,6 +200,27 @@ func TestUserDocumentRoundTrip(t *testing.T) {
 	if stillRules == nil || stillRules.Content != "rules here" {
 		t.Fatalf("rules should remain: %+v", stillRules)
 	}
+	stillKinks, err := st.Document(ctx, "user-1", DocumentKinks)
+	if err != nil {
+		t.Fatalf("Document kinks after profile delete: %v", err)
+	}
+	if stillKinks == nil || stillKinks.Content != "kinks here" {
+		t.Fatalf("kinks should remain: %+v", stillKinks)
+	}
+}
+
+func TestSaveDocumentUnknownKind(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+
+	err := st.SaveDocument(ctx, &UserDocument{
+		DiscordUserID: "user-1",
+		Kind:          "unknown",
+		Content:       "x",
+	})
+	if err == nil {
+		t.Fatal("expected an unknown kind error")
+	}
 }
 
 func TestResolveDocumentUser(t *testing.T) {
@@ -206,6 +243,14 @@ func TestResolveDocumentUser(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("SaveDocument: %v", err)
 	}
+	if err := st.SaveDocument(ctx, &UserDocument{
+		DiscordUserID: "user-3",
+		Kind:          DocumentKinks,
+		Handle:        "kinksonly",
+		Content:       "x",
+	}); err != nil {
+		t.Fatalf("SaveDocument kinks: %v", err)
+	}
 
 	id, ok, err := st.UserByChastiSafeName(ctx, "zastraea")
 	if err != nil || !ok || id != "user-1" {
@@ -218,6 +263,10 @@ func TestResolveDocumentUser(t *testing.T) {
 	id, ok, err = st.UserByHandle(ctx, "other")
 	if err != nil || !ok || id != "user-2" {
 		t.Fatalf("UserByHandle = %q, %v, %v", id, ok, err)
+	}
+	id, ok, err = st.UserByHandle(ctx, "kinksonly")
+	if err != nil || !ok || id != "user-3" {
+		t.Fatalf("UserByHandle kinks = %q, %v, %v", id, ok, err)
 	}
 	if _, ok, err := st.UserByChastiSafeName(ctx, "nobody"); err != nil || ok {
 		t.Fatalf("unknown ChastiSafe name = %v, %v", ok, err)

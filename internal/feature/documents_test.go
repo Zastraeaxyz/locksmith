@@ -130,4 +130,36 @@ func TestDocumentEmbed(t *testing.T) {
 	if rules.Color == profile.Color {
 		t.Fatal("profile and rules should use different colors")
 	}
+
+	kinks := documentEmbed(store.DocumentKinks, "zastraea", "praise\n- bondage")
+	if kinks.Title != "zastraea's kinks" {
+		t.Fatalf("kinks title = %q", kinks.Title)
+	}
+	if kinks.Description != "praise\n- bondage" {
+		t.Fatalf("kinks description = %q", kinks.Description)
+	}
+	if kinks.Color == profile.Color || kinks.Color == rules.Color {
+		t.Fatal("kinks should use its own color")
+	}
+}
+
+func TestKinksTexts(t *testing.T) {
+	if got := kindLabel(store.DocumentKinks); got != "kinks" {
+		t.Fatalf("kindLabel = %q", got)
+	}
+	if got := modalTitle(store.DocumentKinks); got != "Edit kinks" {
+		t.Fatalf("modalTitle = %q", got)
+	}
+	if got := textInputLabel(store.DocumentKinks); got != "Kinks (markdown)" {
+		t.Fatalf("textInputLabel = %q", got)
+	}
+	if got := emptySelfText(store.DocumentKinks); !strings.Contains(got, "/kinks edit") {
+		t.Fatalf("emptySelfText = %q", got)
+	}
+	if got := savedText(store.DocumentKinks); got != "Your kinks have been saved." {
+		t.Fatalf("savedText = %q", got)
+	}
+	if got := clearedText(store.DocumentKinks); got != "Your kinks have been cleared." {
+		t.Fatalf("clearedText = %q", got)
+	}
 }

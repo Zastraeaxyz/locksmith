@@ -46,7 +46,17 @@ type Notification struct {
 const (
 	DocumentProfile = "profile"
 	DocumentRules   = "rules"
+	DocumentKinks   = "kinks"
 )
+
+func validDocumentKind(kind string) bool {
+	switch kind {
+	case DocumentProfile, DocumentRules, DocumentKinks:
+		return true
+	default:
+		return false
+	}
+}
 
 // UserDocument is one member's shared markdown document.
 type UserDocument struct {
@@ -315,7 +325,7 @@ func (s *Store) SaveDocument(ctx context.Context, doc *UserDocument) error {
 	if doc == nil {
 		return errors.New("store: document is nil")
 	}
-	if doc.Kind != DocumentProfile && doc.Kind != DocumentRules {
+	if !validDocumentKind(doc.Kind) {
 		return fmt.Errorf("store: unknown document kind %q", doc.Kind)
 	}
 	_, err := s.db.ExecContext(ctx, `
@@ -391,8 +401,8 @@ func (s *Store) UserByChastiSafeName(ctx context.Context, name string) (string, 
 func (s *Store) UserByHandle(ctx context.Context, handle string) (string, bool, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT discord_user_id FROM user_documents
-		WHERE handle = ? AND kind IN (?, ?)
-		LIMIT 1`, handle, DocumentProfile, DocumentRules)
+		WHERE handle = ? AND kind IN (?, ?, ?)
+		LIMIT 1`, handle, DocumentProfile, DocumentRules, DocumentKinks)
 
 	var id string
 	err := row.Scan(&id)
