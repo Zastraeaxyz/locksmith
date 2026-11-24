@@ -372,8 +372,6 @@ func (s *drawSession) embed(lock *cs.LoadedLock, note string, finished bool) *di
 	}
 	if finished && len(entries) > 0 {
 		b.WriteString("\n\n")
-		b.WriteString(drawSummary(entries))
-		b.WriteString("\n")
 		b.WriteString(totalsLine(entries))
 	}
 
@@ -462,70 +460,31 @@ func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
 	return fmt.Sprintf("Next draw %s", relativeTimestamp(now.Add(wait)))
 }
 
-func drawSummary(entries []drawEntry) string {
-	const maxSummary = 24
-	start := 0
-	if len(entries) > maxSummary {
-		start = len(entries) - maxSummary
-	}
-
-	names := make([]string, 0, len(entries)-start)
-	for _, entry := range entries[start:] {
-		names = append(names, drawSummaryName(entry))
-	}
-	line := "- " + strings.Join(names, ", ")
-	if start > 0 {
-		line = fmt.Sprintf("- … %d earlier, ", start) + strings.Join(names, ", ")
-	}
-	return line
-}
-
-func drawSummaryName(entry drawEntry) string {
-	if entry.card == "" {
-		if entry.dice > 0 {
-			return fmt.Sprintf("dice %d", entry.dice)
-		}
-		return "draw"
-	}
-	switch entry.card {
-	case cs.CardGreen:
-		return "green"
-	case cs.CardRed:
-		return "red"
-	case cs.CardYellowP1:
-		return "yellow +1"
-	case cs.CardYellowP2:
-		return "yellow +2"
-	case cs.CardYellowP3:
-		return "yellow +3"
-	case cs.CardYellowM1:
-		return "yellow -1"
-	case cs.CardYellowM2:
-		return "yellow -2"
-	case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
-		return "yellow +?"
-	case cs.CardDice:
-		if entry.dice > 0 {
-			return fmt.Sprintf("dice %d", entry.dice)
-		}
-		return "dice"
-	default:
-		name := strings.ToLower(entry.card.Label())
-		return strings.TrimSuffix(name, " card")
-	}
-}
-
 func totalsLine(entries []drawEntry) string {
-	reds, greens := 0, 0
+	reds, greens, yellows, doubles := 0, 0, 0, 0
 	for _, entry := range entries {
 		switch entry.card {
 		case cs.CardRed:
 			reds++
 		case cs.CardGreen:
 			greens++
+		case cs.CardDoubleUp:
+			doubles++
+		case cs.CardYellowP1, cs.CardYellowP2, cs.CardYellowP3,
+			cs.CardYellowM1, cs.CardYellowM2, cs.CardYellow,
+			cs.CardYellowUK, cs.CardYellowRN:
+			yellows++
 		}
 	}
-	return fmt.Sprintf("Totals: %d red, %d green", reds, greens)
+
+	line := fmt.Sprintf("Totals: %d red, %d green", reds, greens)
+	if yellows > 0 {
+		line += fmt.Sprintf(", %d yellow", yellows)
+	}
+	if doubles > 0 {
+		line += fmt.Sprintf(", %d double up", doubles)
+	}
+	return line
 }
 
 func cardLogLabel(card cs.Card) string {

@@ -102,19 +102,30 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 	session.setLock(lock)
 	session.add(drawEntry{card: cs.CardYellowP3})
 	session.add(drawEntry{card: cs.CardRed})
+	session.add(drawEntry{card: cs.CardDoubleUp})
 
 	embed := session.embed(lock, "", true)
 	for _, want := range []string{
 		"1. Yellow +3",
 		"2. Red card",
-		"2 used · 0 left",
+		"3. Double up card",
+		"3 used · 0 left",
 		"Next draw <t:",
-		"- yellow +3, red",
-		"Totals: 1 red, 0 green",
+		"Totals: 1 red, 0 green, 1 yellow, 1 double up",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
 		}
+	}
+	if strings.Contains(embed.Description, "- yellow +3, red") {
+		t.Errorf("finished board should not repeat the draws as a list:\n%s", embed.Description)
+	}
+}
+
+func TestTotalsLineOmitsMissingCards(t *testing.T) {
+	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}})
+	if got != "Totals: 0 red, 2 green" {
+		t.Fatalf("totalsLine = %q", got)
 	}
 }
 
