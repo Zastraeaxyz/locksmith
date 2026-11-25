@@ -2,6 +2,13 @@
 
 Notable changes to Locksmith, newest first.
 
+## 2026-11-25
+
+### Changed
+
+- `/lock log` condenses draws that happen within a minute of each other into one line of card icons. Keyholder draws keep a key marker and dice keep the number they threw.
+- The recent `/lock log` view always shows at least the last ten draws, with older picks under **Earlier draws**, so a quiet lock still shows how its last draws went.
+
 ## 2026-11-24
 
 ### Added

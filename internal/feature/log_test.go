@@ -162,36 +162,98 @@ func TestDrawsAvailableZero(t *testing.T) {
 	}
 }
 
-func TestLogOutputUsesCardEmoji(t *testing.T) {
-	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 5, 0, time.UTC)}
-	entries := []cs.LogEntry{
+func TestLogOutputCondensesDraws(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 30, 0, time.UTC)}
+	view := logView{entries: []cs.LogEntry{
 		{Timestamp: stamp, Actor: 2, EventType: 6, Card: "g"},
-		{Timestamp: stamp, Actor: 1, EventType: 6, Card: "d"},
-		{Timestamp: stamp, Actor: 1, EventType: 6, Card: "i", Amount: 4},
-	}
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-10 * time.Second)}, Actor: 1, EventType: 6, Card: "d"},
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-20 * time.Second)}, Actor: 1, EventType: 6, Card: "i", Amount: 4},
+	}}
 
-	out := logOutput("", entries, false, false, "")
+	out := logOutput("", view, "")
 	for _, want := range []string{
 		"<:green:1574875078255185957>",
-		"<:double:1574875037104742581>",
-		"<:dice:1574875035749982268>",
+		":key:<:double:1574875037104742581>",
+		":key:<:dice:1574875035749982268>4",
 		"<t:",
-		"Lockee picked",
-		"Keyholder picked",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log output missing %q:\n%s", want, out)
 		}
 	}
+	if strings.Contains(out, "picked") {
+		t.Errorf("draws should be icons only:\n%s", out)
+	}
+	if got := strings.Count(out, "\n• "); got != 1 {
+		t.Errorf("draw line count = %d, want 1:\n%s", got, out)
+	}
+	if got := strings.Count(out, "<t:"); got != 1 {
+		t.Errorf("timestamp count = %d, want 1:\n%s", got, out)
+	}
+}
+
+func TestLogOutputSplitsDrawsAfterAMinute(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 30, 0, time.UTC)}
+	view := logView{entries: []cs.LogEntry{
+		{Timestamp: stamp, Actor: 2, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-30 * time.Second)}, Actor: 2, EventType: 6, Card: "r"},
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-2 * time.Minute)}, Actor: 2, EventType: 6, Card: "y"},
+	}}
+
+	out := logOutput("", view, "")
+	if got := strings.Count(out, "\n• "); got != 2 {
+		t.Fatalf("draw line count = %d, want 2:\n%s", got, out)
+	}
+	if got := strings.Count(out, "<t:"); got != 2 {
+		t.Errorf("timestamp count = %d, want 2:\n%s", got, out)
+	}
+}
+
+func TestLogOutputShowsEarlierDraws(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 30, 0, time.UTC)}
+	view := logView{earlier: []cs.LogEntry{
+		{Timestamp: stamp, Actor: 2, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-20 * time.Second)}, Actor: 2, EventType: 6, Card: "r"},
+	}}
+
+	out := logOutput("", view, "")
+	for _, want := range []string{
+		"No draws in the last 5 minutes.",
+		"**Earlier draws**",
+		"<:green:1574875078255185957>",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("log output missing %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "**Draws in the last 5 minutes**") {
+		t.Errorf("earlier draws should not be under the recent heading:\n%s", out)
+	}
+}
+
+func TestLogOutputKeepsEventText(t *testing.T) {
+	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 30, 0, time.UTC)}
+	view := logView{full: true, entries: []cs.LogEntry{
+		{Timestamp: stamp, Actor: 2, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: stamp.Time.Add(-5 * time.Second)}, Actor: 2, EventType: 39},
+	}}
+
+	out := logOutput("", view, "")
+	if !strings.Contains(out, "Lockee loaded the lock") {
+		t.Errorf("full log should keep event text:\n%s", out)
+	}
+	if strings.Contains(out, "picked") {
+		t.Errorf("draws should be icons only:\n%s", out)
+	}
 }
 
 func TestLogOutputHidesHygieneCode(t *testing.T) {
 	stamp := cs.Time{Time: time.Date(2026, 11, 24, 14, 32, 5, 0, time.UTC)}
-	entries := []cs.LogEntry{
+	view := logView{full: true, entries: []cs.LogEntry{
 		{Timestamp: stamp, Actor: 2, EventType: 21, Info: "4821"},
-	}
+	}}
 
-	out := logOutput("", entries, false, true, "")
+	out := logOutput("", view, "")
 	if strings.Contains(out, "4821") {
 		t.Fatalf("log output leaked a lock code:\n%s", out)
 	}

@@ -44,7 +44,7 @@ user-install button, and a link to this repository.
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
 | `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
-| `/lock log [full] [ref] [public]` | Recent draws from the last 5 minutes, the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
+| `/lock log [full] [ref] [public]` | The last draws (at least 10, condensed into icons), the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first, with lock codes in a private reply |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |
@@ -134,10 +134,14 @@ member who checks in gets the next cycle's reminders as usual. If a reminder
 never arrives, or notifications are off, `/lock checkin` records the same
 check-in on demand once the window is open.
 
-`/lock log` shows pick events from the last five minutes by default. Add
-`full:true` for every event, `ref:` to pick a running or previous lock, and
-`public:true` to post the reply in the channel. A hygiene unlock's code is
-redacted there, because a log reply can be public and permanent.
+`/lock log` shows draws from the last five minutes by default, and always at
+least the last ten; older picks appear under **Earlier draws**. Draws within a
+minute of each other share one line of card icons, so a run of picks reads as a
+few compact lines instead of one sentence per pick. A keyholder's pick carries a
+key marker and a dice keeps the number it threw. Add `full:true` for every event,
+`ref:` to pick a running or previous lock, and `public:true` to post the reply in
+the channel. A hygiene unlock's code is redacted there, because a log reply can
+be public and permanent.
 
 `/history` lists your completed locks, newest first, with duration, unlock
 reason, keyholder, rating, and the lock code when the reply is private. `TEST`

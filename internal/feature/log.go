@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,11 +15,22 @@ import (
 )
 
 const (
-	recentDrawWindow = 5 * time.Minute
-	logPageSize      = 100
-	recentLogLimit   = 500
-	fullLogLimit     = 1000
+	recentDrawWindow  = 5 * time.Minute
+	recentDrawMinimum = 10
+	drawGroupWindow   = time.Minute
+	logPageSize       = 100
+	recentLogLimit    = 500
+	fullLogLimit      = 1000
 )
+
+// logView is what one /lock log reply shows: the recent window, or every event
+// in full mode, plus older draws that top the recent view up.
+type logView struct {
+	entries   []cs.LogEntry
+	earlier   []cs.LogEntry
+	truncated bool
+	full      bool
+}
 
 type logTarget struct {
 	running  *cs.LoadedLock
@@ -73,14 +85,14 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 	}
 
 	header := f.logHeader(ctx, client, target, cred.ChastiSafeID)
-	entries, truncated, err := f.fetchLog(ctx, client, target.id(), full)
+	view, err := f.fetchLog(ctx, client, target.id(), full)
 	if err != nil {
 		f.log.Warn("loading lock log", "user_id", userID, "lock_id", target.id().String(), "err", err)
-		text := logOutput(header, nil, false, full, note) +
+		text := logOutput(header, logView{full: full}, note) +
 			"\n\nI could not load the log for that lock."
 		return bot.EditChunks(s, i, text, !public)
 	}
-	return bot.EditChunks(s, i, logOutput(header, entries, truncated, full, note), !public)
+	return bot.EditChunks(s, i, logOutput(header, view, note), !public)
 }
 
 // logHeader renders the compact status block for a running lock, or the
@@ -107,9 +119,14 @@ func (f *Feature) logHeader(ctx context.Context, client *cs.Client, target *logT
 	}
 }
 
-func (f *Feature) fetchLog(ctx context.Context, client *cs.Client, lockID cs.ID, full bool) ([]cs.LogEntry, bool, error) {
+// fetchLog reads the lock log. Full mode keeps every event, newest first, up
+// to the full limit. The recent view keeps every draw from the last five
+// minutes plus older draws until it has at least recentDrawMinimum, so a quiet
+// lock still shows recent results.
+func (f *Feature) fetchLog(ctx context.Context, client *cs.Client, lockID cs.ID, full bool) (logView, error) {
+	view := logView{full: full}
 	if lockID == "" {
-		return nil, false, errors.New("no lock selected")
+		return view, errors.New("no lock selected")
 	}
 
 	limit := recentLogLimit
@@ -118,71 +135,131 @@ func (f *Feature) fetchLog(ctx context.Context, client *cs.Client, lockID cs.ID,
 	}
 	cutoff := f.now().Add(-recentDrawWindow)
 
-	var out []cs.LogEntry
-	from := 0
-	for len(out) < limit {
-		entries, err := client.Log(ctx, lockID, from, logPageSize)
+	for page := 0; page < fullLogLimit/logPageSize; page++ {
+		entries, err := client.Log(ctx, lockID, page*logPageSize, logPageSize)
 		if err != nil {
-			return nil, false, err
+			return logView{full: full}, err
 		}
 		if len(entries) == 0 {
 			break
 		}
 		for _, entry := range entries {
-			if !full && entry.Timestamp.Time.Before(cutoff) {
-				return out, false, nil
+			if full {
+				if len(view.entries) >= limit {
+					view.truncated = true
+					return view, nil
+				}
+				view.entries = append(view.entries, entry)
+				continue
 			}
-			if full || entry.EventType == 6 {
-				out = append(out, entry)
+			if entry.EventType != 6 {
+				continue
+			}
+			if entry.Timestamp.Time.Before(cutoff) {
+				if len(view.entries)+len(view.earlier) >= recentDrawMinimum {
+					return view, nil
+				}
+				view.earlier = append(view.earlier, entry)
+				continue
+			}
+			view.entries = append(view.entries, entry)
+			if len(view.entries) >= limit {
+				view.truncated = true
+				return view, nil
 			}
 		}
 		if len(entries) < logPageSize {
 			break
 		}
-		from += logPageSize
 	}
-	return out, len(out) >= limit, nil
+	return view, nil
 }
 
-func logOutput(header string, entries []cs.LogEntry, truncated, full bool, note string) string {
-	var b strings.Builder
-
+func logOutput(header string, view logView, note string) string {
+	var sections []string
 	if header != "" {
-		b.WriteString(header)
+		sections = append(sections, header)
 	}
 	if note != "" {
-		if b.Len() > 0 {
-			b.WriteString("\n\n")
-		}
-		b.WriteString(note)
-	}
-	if b.Len() > 0 {
-		b.WriteString("\n\n")
+		sections = append(sections, note)
 	}
 
-	if len(entries) == 0 {
-		if full {
-			b.WriteString("No log entries.")
-		} else {
-			b.WriteString("No draws in the last 5 minutes. Use `full:true` for the whole log.")
-		}
-	} else {
-		if full {
-			b.WriteString("**Full log**")
-		} else {
-			b.WriteString("**Draws in the last 5 minutes**")
-		}
-		for _, entry := range entries {
-			fmt.Fprintf(&b, "\n• %s ", shortTimestamp(entry.Timestamp.Time))
-			writeCardLetterEmoji(&b, entry.Card)
-			b.WriteString(logEntryText(entry))
-		}
+	switch {
+	case view.full && len(view.entries) == 0:
+		sections = append(sections, "No log entries.")
+	case view.full:
+		sections = append(sections, "**Full log**"+logEntriesText(view.entries))
+	case len(view.entries) > 0:
+		sections = append(sections, "**Draws in the last 5 minutes**"+logEntriesText(view.entries))
+	case len(view.earlier) == 0:
+		sections = append(sections, "No draws in the last 5 minutes. Use `full:true` for the whole log.")
+	default:
+		sections = append(sections, "No draws in the last 5 minutes.")
+	}
+	if len(view.earlier) > 0 {
+		sections = append(sections, "**Earlier draws**"+logEntriesText(view.earlier))
 	}
 
-	if truncated {
-		b.WriteString("\n\nTruncated at the newest entries.")
+	if view.truncated {
+		sections = append(sections, "Truncated at the newest entries.")
+	}
+	return strings.Join(sections, "\n\n")
+}
+
+// logEntriesText renders one line per event, condensing draws that happened
+// within drawGroupWindow of each other into a single icon-only line.
+func logEntriesText(entries []cs.LogEntry) string {
+	var b strings.Builder
+	for idx := 0; idx < len(entries); {
+		if entries[idx].EventType != 6 {
+			b.WriteString("\n• ")
+			b.WriteString(shortTimestamp(entries[idx].Timestamp.Time))
+			b.WriteString(" ")
+			writeCardLetterEmoji(&b, entries[idx].Card)
+			b.WriteString(logEntryText(entries[idx]))
+			idx++
+			continue
+		}
+
+		end := idx + 1
+		for end < len(entries) && entries[end].EventType == 6 &&
+			!entries[end].Timestamp.Time.Before(entries[idx].Timestamp.Time.Add(-drawGroupWindow)) {
+			end++
+		}
+		writeDrawGroup(&b, entries[idx:end])
+		idx = end
 	}
 	return b.String()
+}
+
+// writeDrawGroup writes one condensed line: the time the run of draws started,
+// then each card in draw order. Entries are newest first, so the group is
+// reversed into chronological order and the earliest draw gives the time.
+func writeDrawGroup(b *strings.Builder, group []cs.LogEntry) {
+	b.WriteString("\n• ")
+	b.WriteString(shortTimestamp(group[len(group)-1].Timestamp.Time))
+	for idx := len(group) - 1; idx >= 0; idx-- {
+		writeDrawIcon(b, group[idx])
+	}
+}
+
+// writeDrawIcon writes a leading space and the icon for one draw. A keyholder
+// draw keeps a key marker and a dice draw keeps the number it threw.
+func writeDrawIcon(b *strings.Builder, entry cs.LogEntry) {
+	b.WriteString(" ")
+	if entry.Actor == 1 {
+		b.WriteString(":key:")
+	}
+
+	card, ok := cardForLetter(entry.Card)
+	if !ok {
+		b.WriteString(":question:")
+		return
+	}
+	b.WriteString(cardEmojiMarkup(card))
+	if card == cs.CardDice && entry.Amount > 0 {
+		b.WriteString(strconv.Itoa(entry.Amount))
+	}
 }
 
 // logEntryText renders one log event without revealing a lock code. A hygiene
@@ -199,14 +276,18 @@ func logEntryText(entry cs.LogEntry) string {
 // writeCardLetterEmoji writes the emoji for a ChastiSafe log card letter, if
 // the entry names a known card.
 func writeCardLetterEmoji(b *strings.Builder, letter string) {
+	if card, ok := cardForLetter(letter); ok {
+		writeCardEmoji(b, card)
+	}
+}
+
+// cardForLetter maps a log card letter to its card, ignoring surrounding space.
+func cardForLetter(letter string) (cs.Card, bool) {
+	letter = strings.TrimSpace(letter)
 	if letter == "" {
-		return
+		return "", false
 	}
-	card, ok := cs.CardForLetter(letter[0])
-	if !ok {
-		return
-	}
-	writeCardEmoji(b, card)
+	return cs.CardForLetter(letter[0])
 }
 
 func previousText(lock *cs.RecentLock) string {

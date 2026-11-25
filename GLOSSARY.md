@@ -154,8 +154,10 @@ edits. A session expires, after which the board's buttons stop working.
 _Avoid_: Draw, game
 
 **Lock log**:
-The ordered record of draws in one lock, shown by `/lock log`. The full log adds
-the lock's other events.
+The ordered record of draws in one lock, shown by `/lock log`. Draws that happen
+within a minute of each other are condensed to one line of card icons, and the
+recent view always shows at least the last ten draws. The full log adds the
+lock's other events.
 _Avoid_: History, draw log
 
 **History**:
