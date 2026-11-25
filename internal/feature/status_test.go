@@ -144,6 +144,34 @@ func TestStatusReady(t *testing.T) {
 	}
 }
 
+func TestStatusLoadedElapsed(t *testing.T) {
+	now := statusTestNow()
+
+	cases := []struct {
+		name string
+		ago  time.Duration
+		want string
+	}{
+		{name: "days hours minutes", ago: 39*time.Hour + 56*time.Minute, want: "loaded 1d 15hr 56m"},
+		{name: "hours minutes", ago: 5*time.Hour + 12*time.Minute, want: "loaded 5hr 12m"},
+		{name: "minutes", ago: 42 * time.Minute, want: "loaded 42m"},
+		{name: "less than a minute", ago: 30 * time.Second, want: "loaded just now"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			lock := statusTestLock("a", "Lock A", now)
+			lock.LoadTime = cs.Time{Time: now.Add(-tc.ago)}
+			text := renderStatus([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now)
+			if !strings.Contains(text, tc.want) {
+				t.Errorf("status missing %q:\n%s", tc.want, text)
+			}
+			if strings.Contains(text, "loaded <t:") {
+				t.Errorf("loaded time should not be a relative timestamp:\n%s", text)
+			}
+		})
+	}
+}
+
 func TestFreezeStart(t *testing.T) {
 	now := statusTestNow()
 

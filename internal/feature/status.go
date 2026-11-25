@@ -151,9 +151,31 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 		parts = append(parts, "hidden")
 	}
 	if !lock.LoadTime.IsZero() {
-		parts = append(parts, "loaded "+relativeTimestamp(lock.LoadTime.Time))
+		parts = append(parts, "loaded "+elapsedLabel(opts.now.Sub(lock.LoadTime.Time)))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// elapsedLabel renders a past duration as a compact exact count, for example
+// 1d 15hr 56m, instead of a rounded relative timestamp.
+func elapsedLabel(d time.Duration) string {
+	minutes := int64(d / time.Minute)
+	if minutes < 1 {
+		return "just now"
+	}
+
+	days := minutes / (24 * 60)
+	hours := (minutes % (24 * 60)) / 60
+	mins := minutes % 60
+
+	switch {
+	case days > 0:
+		return fmt.Sprintf("%dd %dhr %dm", days, hours, mins)
+	case hours > 0:
+		return fmt.Sprintf("%dhr %dm", hours, mins)
+	default:
+		return fmt.Sprintf("%dm", mins)
+	}
 }
 
 func statusCardsLine(lock *cs.LoadedLock) string {
