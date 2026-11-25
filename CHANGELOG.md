@@ -18,6 +18,7 @@ Notable changes to Locksmith, newest first.
 
 - `/lock draw` opens the ready board when a lock is already ready, so the ready actions are reachable there too.
 - Draw notification text points at the **Open draw board** button instead of only the command.
+- A frozen card lock is checked at half-draw-interval steps from 2x to 4x the draw time. If it is still frozen after that window, notifications stop with a DM explaining how to turn them back on.
 
 ### Fixed
 

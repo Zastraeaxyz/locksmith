@@ -92,7 +92,15 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, &n)
 
 	if lock.IsFrozen() {
-		next := now.Add(15 * time.Minute)
+		next := f.nextFreezeCheck(ctx, client, lock, now)
+		if next.IsZero() {
+			_ = sendDM(s, userID, fmt.Sprintf(
+				"**%s** is still frozen after the expected freeze window, so draw notifications are off. Use `/lock notify` to turn them back on.",
+				lockName(lock),
+			))
+			_ = f.store.Unsubscribe(ctx, userID)
+			return
+		}
 		if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && checkin.Before(next) {
 			next = checkin
 		}
@@ -193,6 +201,52 @@ func (f *Feature) nextNotificationCheck(lock *cs.LoadedLock, now time.Time, draw
 		next = now.Add(15 * time.Minute)
 	}
 	return next
+}
+
+// nextFreezeCheck picks when to poll a frozen lock again. A card freeze lasts
+// between two and four draw intervals, so it samples half-interval steps
+// across that window. It returns the zero time once the window has passed and
+// polling should stop. A keyholder freeze has no known end, so it keeps the
+// usual cadence.
+func (f *Feature) nextFreezeCheck(ctx context.Context, client *cs.Client, lock *cs.LoadedLock, now time.Time) time.Time {
+	if lock == nil || lock.FrozenByKeyholder {
+		return now.Add(15 * time.Minute)
+	}
+	interval := time.Duration(lock.Regularity) * time.Minute
+	if interval <= 0 {
+		return now.Add(15 * time.Minute)
+	}
+	entries, err := f.freezeLog(ctx, client, lock)
+	if err != nil {
+		f.log.Warn("loading freeze history", "lock_id", lock.ID.String(), "err", err)
+		return now.Add(15 * time.Minute)
+	}
+	since, ok := freezeStartFor(lock, entries)
+	if !ok || since.IsZero() {
+		return now.Add(15 * time.Minute)
+	}
+	next, ok := nextFreezeCheckAt(since, interval, now)
+	if !ok {
+		return time.Time{}
+	}
+	return next
+}
+
+// nextFreezeCheckAt returns the next card-freeze poll after now. Checkpoints
+// run from 2x to 4x the draw interval in half-interval steps, so a one hour
+// draw time polls at 2h, 2h30, 3h, 3h30, and 4h. The final poll at 4x is the
+// last chance to see the freeze end.
+func nextFreezeCheckAt(since time.Time, interval time.Duration, now time.Time) (time.Time, bool) {
+	if interval <= 0 {
+		return time.Time{}, false
+	}
+	for step := 4; step <= 8; step++ {
+		at := since.Add(time.Duration(step) * interval / 2)
+		if at.After(now) {
+			return at.Add(2 * time.Second), true
+		}
+	}
+	return time.Time{}, false
 }
 
 func notificationText(lock *cs.LoadedLock, now time.Time) string {
