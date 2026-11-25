@@ -200,7 +200,9 @@ func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *di
 
 // resolveBoardLock picks the lock for a board and explains any refusal. A
 // lockID pins one lock, while an empty ID picks the newest drawable lock or a
-// ready one, so the ready actions stay reachable.
+// ready one, so the ready actions stay reachable. A card lock whose next draw
+// has not accrued yet is refused with the next draw time, not opened as an
+// empty board.
 func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks []cs.LoadedLock, chastisafeID string, lockID cs.ID) (*cs.LoadedLock, string) {
 	now := f.now()
 
@@ -223,6 +225,14 @@ func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks
 	}
 
 	lock := drawableLock(locks, chastisafeID)
+	if lock != nil && lock.DrawsAvailable() == 0 {
+		// Nothing to draw on the newest lock. A ready lock's actions are still
+		// useful, so prefer that over a dead board.
+		if ready := readyCardLock(locks, chastisafeID); ready != nil {
+			return ready, ""
+		}
+		return nil, drawBlockedMessage(lock, nil, now)
+	}
 	if lock == nil {
 		lock = readyCardLock(locks, chastisafeID)
 	}

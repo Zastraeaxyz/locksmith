@@ -105,8 +105,9 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		f.deleteSession(session.id)
 		return f.renderBoard(s, i, session, lock, false, "The lock is frozen. Drawing stopped.")
 	case lock.DrawsAvailable() == 0:
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, lock, false, "")
+		// The schedule has not accrued the next draw yet. Keep the board open
+		// with its controls so the member can retry, and say when draws open.
+		return f.renderBoard(s, i, session, lock, true, drawBlockedMessage(lock, nil, f.now()))
 	}
 
 	result, err := client.Pick(ctx, lock.ID)

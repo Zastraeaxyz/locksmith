@@ -409,3 +409,35 @@ func TestResolveBoardLockWithoutIDPrefersDrawable(t *testing.T) {
 		t.Fatalf("lock = %+v, refusal = %q, want the drawable lock", lock, refusal)
 	}
 }
+
+func TestResolveBoardLockWithoutIDExplainsNoDraws(t *testing.T) {
+	f := &Feature{now: openTestNow}
+	now := openTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "waiting", LockName: "Waiting", Type: "card", Picks: 0, Wait: 300, LockeeID: "me", LoadTime: cs.Time{Time: now}},
+	}
+
+	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	if lock != nil {
+		t.Fatalf("lock = %+v, want nil", lock)
+	}
+	for _, want := range []string{"No draws available", "Next draw <t:"} {
+		if !strings.Contains(refusal, want) {
+			t.Errorf("refusal = %q, want %q", refusal, want)
+		}
+	}
+}
+
+func TestResolveBoardLockWithoutIDPrefersReadyOverWaiting(t *testing.T) {
+	f := &Feature{now: openTestNow}
+	now := openTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "waiting", LockName: "Waiting", Type: "card", Picks: 0, Wait: 300, LockeeID: "me", LoadTime: cs.Time{Time: now}},
+		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me", LoadTime: cs.Time{Time: now.Add(-time.Hour)}},
+	}
+
+	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	if lock == nil || lock.ID != "ready" || refusal != "" {
+		t.Fatalf("lock = %+v, refusal = %q, want the ready lock", lock, refusal)
+	}
+}
