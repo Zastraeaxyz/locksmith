@@ -154,7 +154,7 @@ func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.Lo
 
 	if err := sendDMWithComponents(s, userID,
 		checkinText(lock, reminder.Send, reminder.Due),
-		checkinButtons(lock),
+		checkinNotificationComponents(lock, now),
 	); err != nil {
 		f.log.Warn("sending check-in notification", "user_id", userID, "err", err)
 		return true

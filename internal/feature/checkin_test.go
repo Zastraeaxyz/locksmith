@@ -2,6 +2,7 @@ package feature
 
 import (
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -374,5 +375,99 @@ func TestPickCheckinLock(t *testing.T) {
 	}
 	if _, _, err := pickCheckinLock("", []cs.LoadedLock{{ID: "plain", Type: "timer"}}, now); err == nil {
 		t.Fatal("no check-in locks should fail")
+	}
+}
+
+func TestCheckinWindowOpen(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	lock := func(remaining time.Duration, tolerance int) *cs.LoadedLock {
+		return &cs.LoadedLock{
+			CheckInPeriod:     1440,
+			CheckInTolerance:  tolerance,
+			TimeToNextCheckIn: int(remaining / time.Second),
+		}
+	}
+
+	cases := []struct {
+		name string
+		lock *cs.LoadedLock
+		want bool
+	}{
+		{"outside tolerance", lock(39*time.Minute, 30), false},
+		{"at tolerance edge", lock(30*time.Minute, 30), true},
+		{"inside tolerance", lock(5*time.Minute, 30), true},
+		{"outside zero tolerance", lock(5*time.Minute, 0), false},
+		{"due", lock(0, 30), true},
+		{"overdue", lock(-5*time.Minute, 30), true},
+		{"no check-in schedule", &cs.LoadedLock{}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := checkinWindowOpen(tc.lock, now); got != tc.want {
+				t.Fatalf("checkinWindowOpen = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCheckinRefusal(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{
+		ID:                "lock",
+		LockName:          "Short Lock",
+		CheckInPeriod:     1440,
+		CheckInTolerance:  30,
+		TimeToNextCheckIn: int(39 * time.Minute / time.Second),
+	}
+
+	text := checkinRefusal(lock, now)
+	for _, want := range []string{
+		"Short Lock",
+		"not open yet",
+		relativeTimestamp(now.Add(9 * time.Minute)),
+		relativeTimestamp(now.Add(39 * time.Minute)),
+	} {
+		if !strings.Contains(text, want) {
+			t.Errorf("refusal missing %q:\n%s", want, text)
+		}
+	}
+
+	lock.CheckInTolerance = 0
+	lock.TimeToNextCheckIn = int(5 * time.Minute / time.Second)
+	text = checkinRefusal(lock, now)
+	if !strings.Contains(text, "not due yet") {
+		t.Errorf("zero-tolerance refusal = %q", text)
+	}
+	if !strings.Contains(text, relativeTimestamp(now.Add(5*time.Minute))) {
+		t.Errorf("zero-tolerance refusal missing due time:\n%s", text)
+	}
+
+	lock.CheckInTolerance = 30
+	lock.TimeToNextCheckIn = int(2 * time.Minute / time.Second)
+	if got := checkinRefusal(lock, now); got != "" {
+		t.Errorf("open-window refusal = %q, want empty", got)
+	}
+}
+
+func TestCheckinNotificationComponentsOnlyInsideWindow(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	lock := func(remaining time.Duration) *cs.LoadedLock {
+		return &cs.LoadedLock{
+			ID:                "lock",
+			LockName:          "Short Lock",
+			CheckInPeriod:     1440,
+			CheckInTolerance:  30,
+			TimeToNextCheckIn: int(remaining / time.Second),
+		}
+	}
+
+	if got := checkinNotificationComponents(lock(39*time.Minute), now); got != nil {
+		t.Errorf("lead reminder components = %+v, want nil", got)
+	}
+	if got := checkinNotificationComponents(lock(5*time.Minute), now); len(got) != 1 {
+		t.Errorf("final reminder components = %d, want 1", len(got))
+	}
+	if got := checkinNotificationComponents(lock(0), now); len(got) != 1 {
+		t.Errorf("overdue reminder components = %d, want 1", len(got))
 	}
 }

@@ -43,6 +43,11 @@ func (f *Feature) handleLockCheckin(ctx context.Context, s *discordgo.Session, i
 		return bot.EditChunks(s, i, err.Error(), !public)
 	}
 
+	if refusal := checkinRefusal(lock, f.now()); refusal != "" {
+		f.track("checkin failed")
+		return bot.EditChunks(s, i, refusal, !public)
+	}
+
 	if err := client.CheckIn(ctx, lock.ID); err != nil {
 		f.track("checkin failed")
 		f.log.Warn("check-in failed", "user_id", userID, "lock_id", lock.ID.String(), "err", err)

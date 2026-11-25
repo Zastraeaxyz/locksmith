@@ -63,6 +63,46 @@ func checkinDeadline(lock *cs.LoadedLock, now time.Time) time.Time {
 	return time.Time{}
 }
 
+// checkinWindowOpen reports whether ChastiSafe should accept a check-in now.
+// The keyholder-defined tolerance opens the window before the due time, and an
+// overdue check-in stays available until it is recorded.
+func checkinWindowOpen(lock *cs.LoadedLock, now time.Time) bool {
+	if lock == nil || lock.CheckInPeriod <= 0 {
+		return false
+	}
+	remaining := checkinIn(lock, now)
+	if remaining <= 0 {
+		return true
+	}
+	tolerance := time.Duration(lock.CheckInTolerance) * time.Minute
+	return tolerance > 0 && remaining <= tolerance
+}
+
+// checkinRefusal explains that a check-in is not available yet. It returns an
+// empty string when the window is open.
+func checkinRefusal(lock *cs.LoadedLock, now time.Time) string {
+	if lock == nil {
+		return "That lock is no longer active."
+	}
+	if checkinWindowOpen(lock, now) {
+		return ""
+	}
+
+	remaining := checkinIn(lock, now)
+	due := checkinDeadline(lock, now)
+	if due.IsZero() || !due.After(now) {
+		due = now.Add(remaining)
+	}
+
+	tolerance := time.Duration(lock.CheckInTolerance) * time.Minute
+	if opens := due.Add(-tolerance); tolerance > 0 && opens.After(now) {
+		return fmt.Sprintf("Check-in for **%s** is not open yet. It opens %s and is due %s.",
+			lockName(lock), relativeTimestamp(opens), relativeTimestamp(due))
+	}
+	return fmt.Sprintf("Check-in for **%s** is not due yet. It is due %s.",
+		lockName(lock), relativeTimestamp(due))
+}
+
 // checkinReminderFor decides whether to remind and which cycle stage is due.
 // The lead stage is configurable; the final stage and the overdue stage always
 // fire.
@@ -184,6 +224,15 @@ func checkinButtons(lock *cs.LoadedLock) []discordgo.MessageComponent {
 	}
 }
 
+// checkinNotificationComponents offers the button only while a check-in is
+// actually available.
+func checkinNotificationComponents(lock *cs.LoadedLock, now time.Time) []discordgo.MessageComponent {
+	if !checkinWindowOpen(lock, now) {
+		return nil
+	}
+	return checkinButtons(lock)
+}
+
 // handleCheckinComponent records a check-in from a reminder button.
 func (f *Feature) handleCheckinComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	data := i.MessageComponentData()
@@ -220,6 +269,10 @@ func (f *Feature) handleCheckinComponent(ctx context.Context, s *discordgo.Sessi
 	if cred.ChastiSafeID != "" && lock.LockeeID.String() != cred.ChastiSafeID {
 		f.track("checkin failed")
 		return bot.ReplyEphemeralFollowup(s, i, "That check-in is not yours to complete.")
+	}
+	if refusal := checkinRefusal(lock, f.now()); refusal != "" {
+		f.track("checkin failed")
+		return bot.ReplyEphemeralFollowup(s, i, refusal)
 	}
 
 	if err := client.CheckIn(ctx, lock.ID); err != nil {

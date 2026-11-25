@@ -18,3 +18,7 @@ Notable changes to Locksmith, newest first.
 
 - `/lock draw` opens the ready board when a lock is already ready, so the ready actions are reachable there too.
 - Draw notification text points at the **Open draw board** button instead of only the command.
+
+### Fixed
+
+- Check-in reminders only show the **Check-in** button once the lock's check-in window is open. Early button presses and `/lock checkin` now explain when the window opens instead of calling ChastiSafe too soon.

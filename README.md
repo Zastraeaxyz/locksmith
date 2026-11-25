@@ -124,12 +124,15 @@ poll ChastiSafe constantly.
 
 The same subscription also watches the lock's check-in schedule. The bot sends a
 first reminder `CHECKIN_LEAD_TIME` before the check-in is due, an unskippable
-reminder five minutes before, and one more when the check-in is overdue. Each
-reminder has a **Check-in** button that records the check-in from Discord; the
-button is removed after it succeeds. Reminders are tracked per check-in cycle, so
-a member who ignores one is not spammed and a member who checks in gets the next
-cycle's reminders as usual. If a reminder never arrives, or notifications are
-off, `/lock checkin` records the same check-in on demand.
+reminder five minutes before, and one more when the check-in is overdue. A
+reminder gets a **Check-in** button only once the lock's check-in window is open:
+from `checkintolerance` before the due time, and through the overdue period. The
+button is removed after it succeeds. An early button press or `/lock checkin`
+explains when the window opens instead of calling ChastiSafe too soon. Reminders
+are tracked per check-in cycle, so a member who ignores one is not spammed and a
+member who checks in gets the next cycle's reminders as usual. If a reminder
+never arrives, or notifications are off, `/lock checkin` records the same
+check-in on demand once the window is open.
 
 `/lock log` shows pick events from the last five minutes by default. Add
 `full:true` for every event, `ref:` to pick a running or previous lock, and
