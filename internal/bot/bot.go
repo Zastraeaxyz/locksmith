@@ -481,6 +481,34 @@ func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate
 	return ReplyFollowup(s, i, content, true)
 }
 
+// EditEmbeds replaces a deferred reply with embeds, then sends any extra
+// embeds as follow-ups because Discord caps ten embeds per message.
+func EditEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
+	const perMessage = 10
+	if len(embeds) == 0 {
+		return Edit(s, i, "")
+	}
+
+	first := embeds
+	if len(first) > perMessage {
+		first = first[:perMessage]
+	}
+	if err := EditMessage(s, i, "", first, nil); err != nil {
+		return err
+	}
+	for start := perMessage; start < len(embeds); start += perMessage {
+		end := min(start+perMessage, len(embeds))
+		params := &discordgo.WebhookParams{Embeds: embeds[start:end]}
+		if ephemeral {
+			params.Flags = discordgo.MessageFlagsEphemeral
+		}
+		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ClearComponents removes the components from a message the bot posted.
 func ClearComponents(s *discordgo.Session, channelID, messageID string) error {
 	if channelID == "" || messageID == "" {

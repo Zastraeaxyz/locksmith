@@ -5,8 +5,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
+
+// statusText flattens status embeds so tests can inspect their content.
+func statusText(embeds []*discordgo.MessageEmbed) string {
+	var b strings.Builder
+	for _, embed := range embeds {
+		b.WriteString(embed.Title)
+		b.WriteString("\n")
+		b.WriteString(embed.Description)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
 
 func statusTestNow() time.Time {
 	return time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
@@ -33,7 +46,7 @@ func statusTestLock(id, name string, now time.Time) cs.LoadedLock {
 func TestStatusSingleLockCompact(t *testing.T) {
 	now := statusTestNow()
 	lock := statusTestLock("a", "Lock A", now)
-	text := renderStatus([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now)
+	text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
 
 	for _, bad := range []string{"Type:", "Role:", "Purpose:", "Lockee:"} {
 		if strings.Contains(text, bad) {
@@ -58,10 +71,10 @@ func TestStatusVaryingPurpose(t *testing.T) {
 	second := statusTestLock("b", "Lock B", now)
 	second.LockPurpose = cs.Purpose("BONDAGE")
 
-	text := renderStatus([]cs.LockView{
+	text := statusText(renderStatusEmbeds([]cs.LockView{
 		{Lock: first, Role: cs.RoleLockee},
 		{Lock: second, Role: cs.RoleLockee},
-	}, "viewer", nil, now)
+	}, "viewer", nil, now))
 
 	for _, want := range []string{"Purpose: CHASTITY", "Purpose: BONDAGE"} {
 		if !strings.Contains(text, want) {
@@ -82,10 +95,10 @@ func TestStatusVaryingType(t *testing.T) {
 	timer.Type = "timer"
 	timer.TimerRemaining = 3600
 
-	text := renderStatus([]cs.LockView{
+	text := statusText(renderStatusEmbeds([]cs.LockView{
 		{Lock: card, Role: cs.RoleLockee},
 		{Lock: timer, Role: cs.RoleLockee},
-	}, "viewer", nil, now)
+	}, "viewer", nil, now))
 
 	for _, want := range []string{"Type: card", "Type: timer", ":hourglass: Unlocks <t:"} {
 		if !strings.Contains(text, want) {
@@ -103,7 +116,7 @@ func TestStatusSelfLocked(t *testing.T) {
 	lock.Keyholder = "<self>"
 	lock.KeyholderID = "0"
 
-	text := renderStatus([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now)
+	text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
 	if !strings.Contains(text, ":key: Self-locked") {
 		t.Errorf("status missing self-locked line:\n%s", text)
 	}
@@ -118,12 +131,12 @@ func TestStatusFrozenSince(t *testing.T) {
 	lock.FrozenByKeyholder = true
 	since := now.Add(-2 * time.Hour)
 
-	text := renderStatus(
+	text := statusText(renderStatusEmbeds(
 		[]cs.LockView{{Lock: lock, Role: cs.RoleLockee}},
 		"viewer",
 		map[cs.ID]time.Time{lock.ID: since},
 		now,
-	)
+	))
 
 	if !strings.Contains(text, ":ice_cube: Frozen for 2hr") {
 		t.Errorf("status missing frozen duration:\n%s", text)
@@ -141,7 +154,7 @@ func TestStatusReady(t *testing.T) {
 	lock := statusTestLock("a", "Lock A", now)
 	lock.ReadyToUnlock = true
 
-	text := renderStatus([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now)
+	text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
 	if !strings.Contains(text, ":unlocked: Ready to unlock") {
 		t.Errorf("status missing ready state:\n%s", text)
 	}
@@ -165,7 +178,7 @@ func TestStatusLoadedElapsed(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			lock := statusTestLock("a", "Lock A", now)
 			lock.LoadTime = cs.Time{Time: now.Add(-tc.ago)}
-			text := renderStatus([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now)
+			text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
 			if !strings.Contains(text, tc.want) {
 				t.Errorf("status missing %q:\n%s", tc.want, text)
 			}
@@ -173,6 +186,48 @@ func TestStatusLoadedElapsed(t *testing.T) {
 				t.Errorf("loaded time should not be a relative timestamp:\n%s", text)
 			}
 		})
+	}
+}
+
+func TestStatusColorsAndEmbeds(t *testing.T) {
+	now := statusTestNow()
+
+	frozen := statusTestLock("a", "Frozen", now)
+	frozen.FrozenByKeyholder = true
+	ready := statusTestLock("b", "Ready", now)
+	ready.ReadyToUnlock = true
+	waiting := statusTestLock("c", "Waiting", now)
+	drawable := statusTestLock("d", "Drawable", now)
+	drawable.Picks = 1
+	timer := statusTestLock("e", "Timer", now)
+	timer.Type = "timer"
+
+	embeds := renderStatusEmbeds([]cs.LockView{
+		{Lock: frozen, Role: cs.RoleLockee},
+		{Lock: ready, Role: cs.RoleLockee},
+		{Lock: waiting, Role: cs.RoleLockee},
+		{Lock: drawable, Role: cs.RoleLockee},
+		{Lock: timer, Role: cs.RoleLockee},
+	}, "viewer", nil, now)
+
+	if len(embeds) != 5 {
+		t.Fatalf("embeds = %d, want one per lock", len(embeds))
+	}
+
+	want := map[string]int{
+		"Frozen":   cardColor(cs.CardFreeze),
+		"Ready":    cardColor(cs.CardGreen),
+		"Waiting":  cardColor(cs.CardRed),
+		"Drawable": embedColor,
+		"Timer":    embedColor,
+	}
+	for _, embed := range embeds {
+		if embed.Title == "" {
+			t.Errorf("embed has no title: %+v", embed)
+		}
+		if embed.Color != want[embed.Title] {
+			t.Errorf("%s color = %#x, want %#x", embed.Title, embed.Color, want[embed.Title])
+		}
 	}
 }
 

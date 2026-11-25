@@ -352,7 +352,8 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 
 	own := ownLocks(locks, cred.ChastiSafeID)
 	freeze := f.freezeTimes(ctx, client, own)
-	return bot.EditChunks(s, i, renderStatus(views, cred.ChastiSafeID, freeze, f.now()), !public)
+	embeds := renderStatusEmbeds(views, cred.ChastiSafeID, freeze, f.now())
+	return bot.EditEmbeds(s, i, embeds, !public)
 }
 
 func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {

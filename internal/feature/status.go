@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bwmarrin/discordgo"
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
 
@@ -19,12 +20,8 @@ type statusOptions struct {
 	now         time.Time
 }
 
-// renderStatus renders the compact /lock status reply.
-func renderStatus(views []cs.LockView, viewerID string, freezeSince map[cs.ID]time.Time, now time.Time) string {
-	if len(views) == 0 {
-		return "You have no active ChastiSafe locks."
-	}
-
+// renderStatusEmbeds renders one embed per active lock, coloured by its state.
+func renderStatusEmbeds(views []cs.LockView, viewerID string, freezeSince map[cs.ID]time.Time, now time.Time) []*discordgo.MessageEmbed {
 	opts := statusOptions{
 		viewerID:    viewerID,
 		freezeSince: freezeSince,
@@ -32,13 +29,28 @@ func renderStatus(views []cs.LockView, viewerID string, freezeSince map[cs.ID]ti
 	}
 	opts.showType, opts.showRole, opts.showPurpose = varyingFields(views)
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "**Your active lock%s** (%d)\n", plural(len(views)), len(views))
+	embeds := make([]*discordgo.MessageEmbed, 0, len(views))
 	for idx := range views {
-		b.WriteString("\n")
-		b.WriteString(renderLockStatus(&views[idx], opts))
+		embeds = append(embeds, lockStatusEmbed(&views[idx], opts))
 	}
-	return strings.TrimRight(b.String(), "\n")
+	return embeds
+}
+
+func lockStatusEmbed(view *cs.LockView, opts statusOptions) *discordgo.MessageEmbed {
+	if view == nil {
+		return &discordgo.MessageEmbed{Description: "Lock not found."}
+	}
+	lock := &view.Lock
+
+	desc := fmt.Sprintf("ID `%s`", lock.ID)
+	if body := renderLockStatusBody(lock, view.Role, opts); body != "" {
+		desc += "\n" + body
+	}
+	return &discordgo.MessageEmbed{
+		Title:       ellipsize(lockName(lock), 256),
+		Description: ellipsize(desc, 4096),
+		Color:       lockStatusColor(lock),
+	}
 }
 
 // varyingFields reports which per-lock metadata is worth showing. A field is
@@ -73,13 +85,19 @@ func renderLockStatus(view *cs.LockView, opts statusOptions) string {
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "**%s** (ID `%s`)\n", lockName(lock), lock.ID)
+	b.WriteString(renderLockStatusBody(lock, view.Role, opts))
+	return strings.TrimRight(b.String(), "\n")
+}
 
+// renderLockStatusBody renders every status line after the lock name.
+func renderLockStatusBody(lock *cs.LoadedLock, role cs.LockRole, opts statusOptions) string {
+	var b strings.Builder
 	var meta []string
 	if opts.showType {
 		meta = append(meta, "Type: "+lockTypeLabel(lock))
 	}
 	if opts.showRole {
-		meta = append(meta, "Role: "+roleLabel(view.Role))
+		meta = append(meta, "Role: "+roleLabel(role))
 	}
 	if opts.showPurpose {
 		meta = append(meta, "Purpose: "+purposeLabel(lock.LockPurpose))
@@ -154,6 +172,22 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 		parts = append(parts, "locked for "+elapsedLabel(opts.now.Sub(lock.LoadTime.Time)))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// lockStatusColor maps a lock's state to the draw board palette: icy blue when
+// frozen, green when it can be opened, red when no draw is available, and the
+// neutral blue otherwise.
+func lockStatusColor(lock *cs.LoadedLock) int {
+	switch {
+	case lock != nil && lock.IsFrozen():
+		return cardColor(cs.CardFreeze)
+	case lock != nil && lock.IsReady():
+		return cardColor(cs.CardGreen)
+	case lock != nil && lock.IsCardLock() && lock.DrawsAvailable() <= 0:
+		return cardColor(cs.CardRed)
+	default:
+		return embedColor
+	}
 }
 
 // elapsedLabel renders a past duration as a compact exact count, for example
