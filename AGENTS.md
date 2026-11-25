@@ -4,7 +4,7 @@
 
 - Use conventional commits (`feat:`, `fix:`, `chore:`, ...) and commit in small, frequent increments.
 - never leave uncommitted changes
-- After committing deploy the bot with `mise deploy`
+- After committing, push the branch, then run `mise deploy` if the push had no conflicts.
 - Always commit as `Author: zastraeaxyz <zastraea@proton.me>`
 
 ## Analytics
