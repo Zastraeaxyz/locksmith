@@ -446,11 +446,10 @@ func (f *Feature) watchLock(ctx context.Context, userID string, lock *cs.LoadedL
 			next = now.Add(time.Minute)
 		}
 	}
-	return f.store.Subscribe(ctx, &store.Notification{
+	return f.store.Watch(ctx, store.Watch{
 		DiscordUserID: userID,
 		LockID:        lock.ID.String(),
 		LastDraws:     string(lock.Draws),
-		LastPicks:     0, // notify on the first check when draws are already ready
 		NextCheckAt:   next,
 	})
 }

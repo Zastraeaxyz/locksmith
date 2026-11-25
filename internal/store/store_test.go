@@ -63,14 +63,13 @@ func TestNotificationDue(t *testing.T) {
 	st := openTestStore(t)
 	now := time.Now().UTC().Truncate(time.Second)
 
-	n := &Notification{
+	if err := st.Watch(ctx, Watch{
 		DiscordUserID: "user-1",
 		LockID:        "lock-1",
 		LastDraws:     "g",
 		NextCheckAt:   now.Add(-time.Minute),
-	}
-	if err := st.Subscribe(ctx, n); err != nil {
-		t.Fatalf("Subscribe: %v", err)
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
 	}
 
 	due, err := st.DueNotifications(ctx, now)
@@ -84,12 +83,15 @@ func TestNotificationDue(t *testing.T) {
 		t.Fatalf("lock id = %q", due[0].LockID)
 	}
 
-	n.LastPicks = 3
-	n.NextCheckAt = now.Add(time.Hour)
-	n.CheckinDueAt = now.Add(2 * time.Hour)
-	n.CheckinStage = "lead"
-	if err := st.Subscribe(ctx, n); err != nil {
-		t.Fatalf("Subscribe update: %v", err)
+	if err := st.RecordDraws(ctx, Draws{
+		DiscordUserID:  "user-1",
+		LockID:         "lock-1",
+		LastDraws:      "gr",
+		LastPicks:      3,
+		LastNotifiedAt: now,
+		NextCheckAt:    now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("RecordDraws: %v", err)
 	}
 	due, err = st.DueNotifications(ctx, now)
 	if err != nil {
@@ -103,14 +105,76 @@ func TestNotificationDue(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Notification: %v", err)
 	}
-	if got == nil || got.LastPicks != 3 {
-		t.Fatalf("LastPicks = %+v", got)
+	if got == nil || got.LastPicks != 3 || got.LastDraws != "gr" {
+		t.Fatalf("draw state = %+v", got)
 	}
-	if !got.CheckinDueAt.Equal(n.CheckinDueAt) || got.CheckinStage != "lead" {
+
+	if err := st.RecordReminder(ctx, Reminder{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		DueAt:         now.Add(2 * time.Hour),
+		Stage:         "lead",
+		NextCheckAt:   now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("RecordReminder: %v", err)
+	}
+	got, err = st.Notification(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Notification after reminder: %v", err)
+	}
+	if !got.CheckinDueAt.Equal(now.Add(2*time.Hour)) || got.CheckinStage != "lead" {
 		t.Fatalf("check-in state = %+v", got)
 	}
 
-	if err := st.ClearCheckin(ctx, "user-1", "lock-1"); err != nil {
+	if err := st.RecordDraws(ctx, Draws{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		LastDraws:     "grr",
+		LastPicks:     4,
+		NextCheckAt:   now.Add(30 * time.Minute),
+	}); err != nil {
+		t.Fatalf("RecordDraws second: %v", err)
+	}
+	got, err = st.Notification(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Notification after second draw: %v", err)
+	}
+	if got.CheckinStage != "lead" {
+		t.Fatalf("RecordDraws cleared the reminder: %+v", got)
+	}
+
+	if err := st.Watch(ctx, Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		LastDraws:     "g",
+		NextCheckAt:   now.Add(10 * time.Second),
+	}); err != nil {
+		t.Fatalf("Watch again: %v", err)
+	}
+	got, err = st.Notification(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Notification after re-watch: %v", err)
+	}
+	if got.CheckinStage != "lead" {
+		t.Fatalf("re-watching the same lock reset the reminder: %+v", got)
+	}
+
+	if err := st.Watch(ctx, Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-2",
+		NextCheckAt:   now.Add(10 * time.Second),
+	}); err != nil {
+		t.Fatalf("Watch new lock: %v", err)
+	}
+	got, err = st.Notification(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("Notification after new lock: %v", err)
+	}
+	if got.LockID != "lock-2" || !got.CheckinDueAt.IsZero() || got.CheckinStage != "" {
+		t.Fatalf("new lock should start a fresh subscription: %+v", got)
+	}
+
+	if err := st.ClearCheckin(ctx, "user-1", "lock-2"); err != nil {
 		t.Fatalf("ClearCheckin: %v", err)
 	}
 	got, err = st.Notification(ctx, "user-1")
@@ -119,6 +183,17 @@ func TestNotificationDue(t *testing.T) {
 	}
 	if !got.CheckinDueAt.IsZero() || got.CheckinStage != "" {
 		t.Fatalf("check-in state after clear = %+v", got)
+	}
+
+	if err := st.Reschedule(ctx, "user-1", now.Add(-time.Minute)); err != nil {
+		t.Fatalf("Reschedule: %v", err)
+	}
+	due, err = st.DueNotifications(ctx, now)
+	if err != nil {
+		t.Fatalf("DueNotifications after reschedule: %v", err)
+	}
+	if len(due) != 1 || due[0].LockID != "lock-2" {
+		t.Fatalf("due after reschedule = %+v", due)
 	}
 
 	if err := st.Unsubscribe(ctx, "user-1"); err != nil {

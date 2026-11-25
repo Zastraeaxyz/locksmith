@@ -31,7 +31,9 @@ type Credential struct {
 	UpdatedAt      time.Time
 }
 
-// Notification is one member's draw-notification subscription.
+// Notification is one member's watch on a lock: the draw schedule state and
+// the check-in reminder stage. Reads return it whole; writes go through the
+// intent methods below, so a caller cannot overwrite a field it does not own.
 type Notification struct {
 	DiscordUserID  string
 	LockID         string
@@ -46,6 +48,35 @@ type Notification struct {
 	// CheckinStage is the last reminder sent for that moment: "lead",
 	// "final", or "overdue". Empty means no reminder yet.
 	CheckinStage string
+}
+
+// Watch starts or refreshes a member's draw subscription for one lock. It
+// resets the draw schedule state, but it keeps any check-in reminder state for
+// the same lock, because re-subscribing is not a new check-in cycle.
+type Watch struct {
+	DiscordUserID string
+	LockID        string
+	LastDraws     string
+	NextCheckAt   time.Time
+}
+
+// Draws records a draw-schedule observation for a watched lock.
+type Draws struct {
+	DiscordUserID  string
+	LockID         string
+	LastDraws      string
+	LastPicks      int
+	LastNotifiedAt time.Time
+	NextCheckAt    time.Time
+}
+
+// Reminder records the check-in reminder stage for the current cycle.
+type Reminder struct {
+	DiscordUserID string
+	LockID        string
+	DueAt         time.Time
+	Stage         string
+	NextCheckAt   time.Time
 }
 
 // Document kinds stored in user_documents.
@@ -251,31 +282,67 @@ func (s *Store) DeleteCredential(ctx context.Context, discordUserID string) erro
 	return err
 }
 
-// Subscribe registers or refreshes a member's draw notifications.
-func (s *Store) Subscribe(ctx context.Context, n *Notification) error {
-	if n == nil {
-		return errors.New("store: notification is nil")
-	}
-	checkinDue := int64(0)
-	if !n.CheckinDueAt.IsZero() {
-		checkinDue = n.CheckinDueAt.Unix()
-	}
+// Watch starts or refreshes a member's draw subscription. A new lock clears
+// the check-in reminder state, because the stored reminder belongs to the old
+// lock; the same lock keeps it, so re-subscribing cannot repeat a reminder.
+func (s *Store) Watch(ctx context.Context, w Watch) error {
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO notifications (
 			discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
 			next_check_at, checkin_due_at, checkin_stage
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		) VALUES (?, ?, ?, 0, 0, ?, 0, '')
 		ON CONFLICT(discord_user_id) DO UPDATE SET
 			lock_id = excluded.lock_id,
 			last_draws = excluded.last_draws,
 			last_picks = excluded.last_picks,
 			last_notified_at = excluded.last_notified_at,
 			next_check_at = excluded.next_check_at,
-			checkin_due_at = excluded.checkin_due_at,
-			checkin_stage = excluded.checkin_stage`,
-		n.DiscordUserID, n.LockID, n.LastDraws, n.LastPicks,
-		n.LastNotifiedAt.Unix(), n.NextCheckAt.Unix(),
-		checkinDue, n.CheckinStage,
+			checkin_due_at = CASE
+				WHEN notifications.lock_id = excluded.lock_id
+				THEN notifications.checkin_due_at ELSE 0 END,
+			checkin_stage = CASE
+				WHEN notifications.lock_id = excluded.lock_id
+				THEN notifications.checkin_stage ELSE '' END`,
+		w.DiscordUserID, w.LockID, w.LastDraws, w.NextCheckAt.Unix(),
+	)
+	return err
+}
+
+// RecordDraws stores a draw-schedule observation. It leaves the check-in
+// reminder state untouched.
+func (s *Store) RecordDraws(ctx context.Context, d Draws) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications
+		SET lock_id = ?, last_draws = ?, last_picks = ?, last_notified_at = ?,
+			next_check_at = ?
+		WHERE discord_user_id = ?`,
+		d.LockID, d.LastDraws, d.LastPicks, d.LastNotifiedAt.Unix(),
+		d.NextCheckAt.Unix(), d.DiscordUserID,
+	)
+	return err
+}
+
+// RecordReminder stores the check-in reminder stage. It leaves the draw
+// schedule state untouched.
+func (s *Store) RecordReminder(ctx context.Context, r Reminder) error {
+	due := int64(0)
+	if !r.DueAt.IsZero() {
+		due = r.DueAt.Unix()
+	}
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications
+		SET lock_id = ?, checkin_due_at = ?, checkin_stage = ?, next_check_at = ?
+		WHERE discord_user_id = ?`,
+		r.LockID, due, r.Stage, r.NextCheckAt.Unix(), r.DiscordUserID,
+	)
+	return err
+}
+
+// Reschedule moves the next poll without touching draw or reminder state.
+func (s *Store) Reschedule(ctx context.Context, discordUserID string, nextCheckAt time.Time) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications SET next_check_at = ? WHERE discord_user_id = ?`,
+		nextCheckAt.Unix(), discordUserID,
 	)
 	return err
 }

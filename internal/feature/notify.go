@@ -72,8 +72,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 			return
 		}
 		f.log.Warn("notification fetch failed", "user_id", userID, "err", err)
-		n.NextCheckAt = f.now().Add(5 * time.Minute)
-		_ = f.store.Subscribe(ctx, &n)
+		f.reschedule(ctx, userID, f.now().Add(5*time.Minute))
 		return
 	}
 
@@ -89,7 +88,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
-	sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, &n)
+	checkin, sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, n)
 
 	if lock.IsFrozen() {
 		next := f.nextFreezeCheck(ctx, client, lock, now)
@@ -101,26 +100,31 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 			_ = f.store.Unsubscribe(ctx, userID)
 			return
 		}
-		if checkin := f.nextCheckinCheck(lock, now); !checkin.IsZero() && checkin.Before(next) {
-			next = checkin
+		if checkinAt := f.nextCheckinCheck(lock, now); !checkinAt.IsZero() && checkinAt.Before(next) {
+			next = checkinAt
 		}
-		n.NextCheckAt = next
-		if err := f.store.Subscribe(ctx, &n); err != nil {
-			f.log.Warn("updating notification", "user_id", userID, "err", err)
-		}
+		f.saveCheckin(ctx, userID, lock.ID, checkin, n)
+		f.reschedule(ctx, userID, next)
 		return
 	}
 
 	draws := lock.DrawsAvailable()
 
 	drawFailed := false
+	record := store.Draws{
+		DiscordUserID:  userID,
+		LockID:         lock.ID.String(),
+		LastDraws:      n.LastDraws,
+		LastPicks:      n.LastPicks,
+		LastNotifiedAt: n.LastNotifiedAt,
+	}
 	if draws > n.LastPicks {
 		if err := sendDMWithComponents(s, userID, notificationText(lock, now), drawNotificationButtons(lock)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			drawFailed = true
 			sendFailed = true
 		} else {
-			n.LastNotifiedAt = now
+			record.LastNotifiedAt = now
 			f.log.Info("draw notification sent",
 				"user_id", userID,
 				"lock_id", lock.ID.String(),
@@ -129,35 +133,53 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		}
 	}
 
-	n.LockID = lock.ID.String()
 	if !drawFailed {
-		n.LastDraws = string(lock.Draws)
-		n.LastPicks = draws
+		record.LastDraws = string(lock.Draws)
+		record.LastPicks = draws
 	}
-	n.NextCheckAt = f.nextNotificationCheck(lock, now, draws, sendFailed)
+	record.NextCheckAt = f.nextNotificationCheck(lock, now, draws, sendFailed)
 
-	if err := f.store.Subscribe(ctx, &n); err != nil {
+	f.saveCheckin(ctx, userID, lock.ID, checkin, n)
+	if err := f.store.RecordDraws(ctx, record); err != nil {
 		f.log.Warn("updating notification", "user_id", userID, "err", err)
 	}
 }
 
-// notifyCheckin sends any due check-in reminder and records the cycle stage.
-// It reports whether a send failed, so the scheduler retries soon.
-func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.LoadedLock, chastisafeID string, now time.Time, n *store.Notification) bool {
-	if n == nil {
-		return false
+// saveCheckin stores a reminder stage when the poll changed it, so a poll that
+// found nothing new does not rewrite the row.
+func (f *Feature) saveCheckin(ctx context.Context, userID string, lockID cs.ID, next checkinReminder, prev store.Notification) {
+	if next.Due.Unix() == prev.CheckinDueAt.Unix() && next.Stage == prev.CheckinStage {
+		return
 	}
+	if err := f.store.RecordReminder(ctx, store.Reminder{
+		DiscordUserID: userID,
+		LockID:        lockID.String(),
+		DueAt:         next.Due,
+		Stage:         next.Stage,
+		NextCheckAt:   prev.NextCheckAt,
+	}); err != nil {
+		f.log.Warn("updating check-in state", "user_id", userID, "err", err)
+	}
+}
+
+// reschedule moves the next poll without touching what the poll has recorded.
+func (f *Feature) reschedule(ctx context.Context, userID string, next time.Time) {
+	if err := f.store.Reschedule(ctx, userID, next); err != nil {
+		f.log.Warn("updating notification", "user_id", userID, "err", err)
+	}
+}
+
+// notifyCheckin sends any due check-in reminder. It returns the reminder state
+// to store and whether a send failed. The stage is only advanced when the
+// reminder was delivered, so a failed send is retried in the same cycle.
+func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.LoadedLock, chastisafeID string, now time.Time, prev store.Notification) (checkinReminder, bool) {
 	if lock.CheckInPeriod <= 0 || lock.LockeeID.String() != chastisafeID {
-		n.CheckinDueAt = time.Time{}
-		n.CheckinStage = ""
-		return false
+		return checkinReminder{}, false
 	}
 
-	reminder := f.checkinReminderFor(lock, now, *n)
+	reminder := f.checkinReminderFor(lock, now, prev)
 	if reminder.Send == "" {
-		n.CheckinDueAt = reminder.Due
-		n.CheckinStage = reminder.Stage
-		return false
+		return reminder, false
 	}
 
 	if err := sendDMWithComponents(s, userID,
@@ -165,17 +187,15 @@ func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.Lo
 		checkinNotificationComponents(lock, now),
 	); err != nil {
 		f.log.Warn("sending check-in notification", "user_id", userID, "err", err)
-		return true
+		return checkinReminder{Due: prev.CheckinDueAt, Stage: prev.CheckinStage}, true
 	}
 
-	n.CheckinDueAt = reminder.Due
-	n.CheckinStage = reminder.Stage
 	f.log.Info("check-in notification sent",
 		"user_id", userID,
 		"lock_id", lock.ID.String(),
 		"stage", reminder.Stage,
 	)
-	return false
+	return reminder, false
 }
 
 // nextNotificationCheck picks the next poll for draws and check-ins.
