@@ -59,7 +59,7 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 	if err != nil {
 		return bot.Edit(s, i, f.apiFailure(ctx, userID, err))
 	}
-	own := filterOwn(locks, cred.ChastiSafeID)
+	own := ownLocks(locks, cred.ChastiSafeID)
 
 	recent, err := client.Recent(ctx)
 	if err != nil {
@@ -254,131 +254,11 @@ func resolveLogTarget(ref string, running []cs.LoadedLock, recent []cs.RecentLoc
 		}
 	}
 
-	lower := strings.ToLower(ref)
-
-	for idx := range running {
-		if running[idx].ID.String() == ref {
-			return &logTarget{running: &running[idx]}, "", nil
-		}
+	resolved, note, err := resolveRef(ref, running, recent)
+	if err != nil {
+		return nil, "", err
 	}
-	for idx := range recent {
-		if recent[idx].LockID.String() == ref {
-			return &logTarget{previous: &recent[idx]}, "", nil
-		}
-	}
-
-	var exactRunning []*cs.LoadedLock
-	for idx := range running {
-		if strings.ToLower(strings.TrimSpace(running[idx].LockName)) == lower {
-			exactRunning = append(exactRunning, &running[idx])
-		}
-	}
-	if len(exactRunning) == 1 {
-		return &logTarget{running: exactRunning[0]}, "", nil
-	}
-	if len(exactRunning) > 1 {
-		target := newestRunningPtrs(exactRunning)
-		return &logTarget{running: target},
-			fmt.Sprintf("Several active locks have that name. Using the newest, **%s**.", lockName(target)), nil
-	}
-
-	var exactRecent []*cs.RecentLock
-	for idx := range recent {
-		if strings.ToLower(strings.TrimSpace(recent[idx].LockName)) == lower {
-			exactRecent = append(exactRecent, &recent[idx])
-		}
-	}
-	if len(exactRecent) > 0 {
-		return &logTarget{previous: newestRecentPtrs(exactRecent)}, "", nil
-	}
-
-	var (
-		runningMatches []*cs.LoadedLock
-		recentMatches  []*cs.RecentLock
-		names          []string
-	)
-	for idx := range running {
-		if prefixMatch(running[idx].LockName, lower) {
-			runningMatches = append(runningMatches, &running[idx])
-			names = append(names, lockName(&running[idx]))
-		}
-	}
-	for idx := range recent {
-		if prefixMatch(recent[idx].LockName, lower) {
-			recentMatches = append(recentMatches, &recent[idx])
-			names = append(names, recentName(&recent[idx]))
-		}
-	}
-
-	switch {
-	case len(runningMatches) == 1:
-		return &logTarget{running: runningMatches[0]}, "", nil
-	case len(runningMatches) > 1:
-		return nil, "", fmt.Errorf("`%s` matches several active locks: %s", ref, strings.Join(names, ", "))
-	case len(recentMatches) == 1:
-		return &logTarget{previous: recentMatches[0]}, "", nil
-	case len(recentMatches) > 1:
-		return nil, "", fmt.Errorf("`%s` matches several previous locks: %s", ref, strings.Join(names, ", "))
-	default:
-		return nil, "", fmt.Errorf("No lock matches `%s`.", ref)
-	}
-}
-
-func prefixMatch(name, lower string) bool {
-	name = strings.ToLower(strings.TrimSpace(name))
-	return name != "" && strings.HasPrefix(name, lower)
-}
-
-func newestRunning(locks []cs.LoadedLock) *cs.LoadedLock {
-	if len(locks) == 0 {
-		return nil
-	}
-	best := &locks[0]
-	for idx := 1; idx < len(locks); idx++ {
-		if locks[idx].LoadTime.Time.After(best.LoadTime.Time) {
-			best = &locks[idx]
-		}
-	}
-	return best
-}
-
-func newestRunningPtrs(locks []*cs.LoadedLock) *cs.LoadedLock {
-	if len(locks) == 0 {
-		return nil
-	}
-	best := locks[0]
-	for _, lock := range locks[1:] {
-		if lock.LoadTime.Time.After(best.LoadTime.Time) {
-			best = lock
-		}
-	}
-	return best
-}
-
-func newestRecent(locks []cs.RecentLock) *cs.RecentLock {
-	if len(locks) == 0 {
-		return nil
-	}
-	best := &locks[0]
-	for idx := 1; idx < len(locks); idx++ {
-		if locks[idx].UnlockTime.Time.After(best.UnlockTime.Time) {
-			best = &locks[idx]
-		}
-	}
-	return best
-}
-
-func newestRecentPtrs(locks []*cs.RecentLock) *cs.RecentLock {
-	if len(locks) == 0 {
-		return nil
-	}
-	best := locks[0]
-	for _, lock := range locks[1:] {
-		if lock.UnlockTime.Time.After(best.UnlockTime.Time) {
-			best = lock
-		}
-	}
-	return best
+	return &logTarget{running: resolved.Running, previous: resolved.Previous}, note, nil
 }
 
 func recentName(lock *cs.RecentLock) string {
@@ -396,26 +276,6 @@ func displayOr(value, fallback string) string {
 		return trimmed
 	}
 	return fallback
-}
-
-func filterOwn(locks []cs.LoadedLock, chastisafeID string) []cs.LoadedLock {
-	out := make([]cs.LoadedLock, 0, len(locks))
-	for idx := range locks {
-		if chastisafeID != "" && locks[idx].LockeeID.String() != chastisafeID {
-			continue
-		}
-		out = append(out, locks[idx])
-	}
-	return out
-}
-
-func ownLockViews(locks []cs.LoadedLock, chastisafeID string) []cs.LockView {
-	own := filterOwn(locks, chastisafeID)
-	views := make([]cs.LockView, 0, len(own))
-	for idx := range own {
-		views = append(views, cs.LockView{Lock: own[idx], Role: cs.RoleLockee})
-	}
-	return views
 }
 
 func boolOption(options []*discordgo.ApplicationCommandInteractionDataOption, name string) bool {

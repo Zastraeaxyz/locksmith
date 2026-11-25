@@ -272,9 +272,9 @@ func TestDrawTargetNewest(t *testing.T) {
 		{ID: "other", LockName: "Other", Type: "card", LockeeID: "someone", LoadTime: at(-10 * time.Minute)},
 	}
 
-	got := drawTarget(locks, "viewer")
+	got := drawRefusalTarget(locks, "viewer")
 	if got == nil || got.ID != "new" {
-		t.Fatalf("drawTarget = %+v, want newest card lock", got)
+		t.Fatalf("drawRefusalTarget = %+v, want newest card lock", got)
 	}
 }
 

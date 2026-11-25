@@ -277,16 +277,16 @@ func TestActiveCheckinLock(t *testing.T) {
 		{ID: "overdue", Type: "timer", LockeeID: "me", CheckInPeriod: 1440},
 	}
 
-	got := activeCheckinLock(locks, "me", now)
+	got := nextCheckinLock(locks, "me", now)
 	if got == nil || got.ID != "overdue" {
 		t.Fatalf("picked %+v, want overdue", got)
 	}
 
-	if got := activeCheckinLock(locks, "someone-else", now); got != nil {
+	if got := nextCheckinLock(locks, "someone-else", now); got != nil {
 		t.Fatalf("picked %+v for another member", got)
 	}
 
-	if got := activeCheckinLock(nil, "me", now); got != nil {
+	if got := nextCheckinLock(nil, "me", now); got != nil {
 		t.Fatalf("picked %+v from no locks", got)
 	}
 }

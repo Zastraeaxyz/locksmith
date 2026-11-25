@@ -3,7 +3,6 @@ package feature
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -191,10 +190,7 @@ func shareCandidates(templates []cs.Template, chastisafeID string) []refChoice {
 
 // checkinCandidates lists the caller's locks that can record a check-in.
 func checkinCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
-	own := filterOwn(locks, chastisafeID)
-	sort.SliceStable(own, func(a, b int) bool {
-		return own[a].LoadTime.Time.After(own[b].LoadTime.Time)
-	})
+	own := newestRunningFirst(ownLocks(locks, chastisafeID))
 
 	out := make([]refChoice, 0, len(own))
 	for idx := range own {
@@ -209,10 +205,7 @@ func checkinCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
 
 // openCandidates lists the caller's locks that are ready to open.
 func openCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
-	own := filterOwn(locks, chastisafeID)
-	sort.SliceStable(own, func(a, b int) bool {
-		return own[a].LoadTime.Time.After(own[b].LoadTime.Time)
-	})
+	own := newestRunningFirst(ownLocks(locks, chastisafeID))
 
 	out := make([]refChoice, 0, len(own))
 	for idx := range own {
@@ -227,15 +220,8 @@ func openCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
 
 // logCandidates lists the caller's active locks followed by previous locks.
 func logCandidates(running []cs.LoadedLock, recent []cs.RecentLock, chastisafeID string) []refChoice {
-	own := filterOwn(running, chastisafeID)
-	sort.SliceStable(own, func(a, b int) bool {
-		return own[a].LoadTime.Time.After(own[b].LoadTime.Time)
-	})
-
-	previous := append([]cs.RecentLock(nil), recent...)
-	sort.SliceStable(previous, func(a, b int) bool {
-		return previous[a].UnlockTime.Time.After(previous[b].UnlockTime.Time)
-	})
+	own := newestRunningFirst(ownLocks(running, chastisafeID))
+	previous := newestRecentFirst(recent)
 
 	out := make([]refChoice, 0, len(own)+len(previous))
 	for idx := range own {

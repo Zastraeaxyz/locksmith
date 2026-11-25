@@ -300,18 +300,6 @@ func drawNotificationButtons(lock *cs.LoadedLock) []discordgo.MessageComponent {
 	}
 }
 
-func findLock(locks []cs.LoadedLock, lockID, chastisafeID string, now time.Time) *cs.LoadedLock {
-	for idx := range locks {
-		if lockID != "" && locks[idx].ID.String() == lockID {
-			return &locks[idx]
-		}
-	}
-	if lock := activeCardLock(locks, chastisafeID); lock != nil {
-		return lock
-	}
-	return activeCheckinLock(locks, chastisafeID, now)
-}
-
 func lockName(lock *cs.LoadedLock) string {
 	if lock == nil {
 		return "your lock"

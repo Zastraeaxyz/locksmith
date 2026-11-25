@@ -350,7 +350,7 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 		return bot.EditChunks(s, i, "You have no active ChastiSafe locks.", !public)
 	}
 
-	own := filterOwn(locks, cred.ChastiSafeID)
+	own := ownLocks(locks, cred.ChastiSafeID)
 	freeze := f.freezeTimes(ctx, client, own)
 	return bot.EditChunks(s, i, renderStatus(views, cred.ChastiSafeID, freeze, f.now()), !public)
 }
@@ -383,10 +383,10 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	now := f.now()
-	lock := activeCardLock(locks, cred.ChastiSafeID)
+	lock := drawableLock(locks, cred.ChastiSafeID)
 	checkinOnly := false
 	if lock == nil {
-		lock = activeCheckinLock(locks, cred.ChastiSafeID, now)
+		lock = nextCheckinLock(locks, cred.ChastiSafeID, now)
 		checkinOnly = lock != nil
 	}
 	if lock == nil {
@@ -455,58 +455,8 @@ func (f *Feature) watchLock(ctx context.Context, userID string, lock *cs.LoadedL
 	})
 }
 
-// activeCheckinLock returns the caller's active lockee lock that needs
-// check-ins, preferring the one due soonest. It is the fallback for members
-// with no card lock, such as a timer lock.
-func activeCheckinLock(locks []cs.LoadedLock, chastisafeID string, now time.Time) *cs.LoadedLock {
-	var pick *cs.LoadedLock
-	var pickIn time.Duration
-	for idx := range locks {
-		lock := &locks[idx]
-		if lock.IsReady() || lock.CheckInPeriod <= 0 {
-			continue
-		}
-		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
-			continue
-		}
-		remaining := checkinIn(lock, now)
-		if remaining < 0 {
-			remaining = 0
-		}
-		if pick == nil || remaining < pickIn {
-			pick, pickIn = lock, remaining
-		}
-	}
-	return pick
-}
-
-// activeCardLock returns the caller's newest active, unfrozen card lock,
-// preferring one that has a draw ready.
-func activeCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
-	var newest, withDraws *cs.LoadedLock
-	for idx := range locks {
-		lock := &locks[idx]
-		if !lock.IsCardLock() || lock.IsFrozen() || lock.IsReady() {
-			continue
-		}
-		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
-			continue
-		}
-		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
-			newest = lock
-		}
-		if lock.DrawsAvailable() > 0 {
-			if withDraws == nil || lock.LoadTime.Time.After(withDraws.LoadTime.Time) {
-				withDraws = lock
-			}
-		}
-	}
-	if withDraws != nil {
-		return withDraws
-	}
-	return newest
-}
-
+// activeCheckinLock and activeCardLock used to live here. Lock selection now
+// has one home in selection.go.
 func modalValue(components []discordgo.MessageComponent, customID string) string {
 	for _, component := range components {
 		row, ok := component.(*discordgo.ActionsRow)

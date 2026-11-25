@@ -37,7 +37,7 @@ func (f *Feature) handleLockCheckin(ctx context.Context, s *discordgo.Session, i
 		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 
-	lock, note, err := pickCheckinLock(ref, filterOwn(locks, cred.ChastiSafeID), f.now())
+	lock, note, err := pickCheckinLock(ref, ownLocks(locks, cred.ChastiSafeID), f.now())
 	if err != nil {
 		f.track("checkin failed")
 		return bot.EditChunks(s, i, err.Error(), !public)
@@ -82,14 +82,14 @@ func (f *Feature) handleLockCheckin(ctx context.Context, s *discordgo.Session, i
 // including an overdue check-in.
 func pickCheckinLock(ref string, locks []cs.LoadedLock, now time.Time) (*cs.LoadedLock, string, error) {
 	if strings.TrimSpace(ref) != "" {
-		target, note, err := resolveLogTarget(ref, locks, nil)
+		resolved, note, err := resolveRef(ref, locks, nil)
 		if err != nil {
 			return nil, "", err
 		}
-		if target == nil || target.running == nil {
+		if resolved.Running == nil {
 			return nil, "", fmt.Errorf("No active lock matches `%s`.", ref)
 		}
-		lock := target.running
+		lock := resolved.Running
 		if lock.CheckInPeriod <= 0 {
 			return nil, "", fmt.Errorf("**%s** does not use check-ins.", lockName(lock))
 		}
@@ -99,7 +99,7 @@ func pickCheckinLock(ref string, locks []cs.LoadedLock, now time.Time) (*cs.Load
 		return lock, note, nil
 	}
 
-	lock := activeCheckinLock(locks, "", now)
+	lock := nextCheckinLock(locks, "", now)
 	if lock == nil {
 		return nil, "", errors.New("None of your active locks need a check-in.")
 	}
@@ -108,14 +108,4 @@ func pickCheckinLock(ref string, locks []cs.LoadedLock, now time.Time) (*cs.Load
 		note = fmt.Sprintf("Using **%s**, the lock with the next check-in. Pass `ref` to choose another.", lockName(lock))
 	}
 	return lock, note, nil
-}
-
-func countCheckinLocks(locks []cs.LoadedLock) int {
-	count := 0
-	for idx := range locks {
-		if locks[idx].CheckInPeriod > 0 && !locks[idx].IsReady() {
-			count++
-		}
-	}
-	return count
 }

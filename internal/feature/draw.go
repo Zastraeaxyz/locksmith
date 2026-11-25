@@ -223,7 +223,7 @@ func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks
 		return lock, ""
 	}
 
-	lock := activeCardLock(locks, chastisafeID)
+	lock := drawableLock(locks, chastisafeID)
 	if lock == nil {
 		lock = readyCardLock(locks, chastisafeID)
 	}
@@ -231,7 +231,7 @@ func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks
 		return lock, ""
 	}
 
-	target := drawTarget(locks, chastisafeID)
+	target := drawRefusalTarget(locks, chastisafeID)
 	freeze := map[cs.ID]time.Time{}
 	if target != nil && target.IsFrozen() {
 		freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
@@ -246,43 +246,6 @@ func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.Interactio
 		f.log.Warn("deleting draw placeholder", "err", err)
 	}
 	return bot.ReplyEphemeralFollowup(s, i, content)
-}
-
-// readyCardLock returns the caller's newest card lock that is ready to unlock.
-func readyCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
-	var newest *cs.LoadedLock
-	for idx := range locks {
-		lock := &locks[idx]
-		if !lock.IsCardLock() || !lock.IsReady() || lock.IsFrozen() {
-			continue
-		}
-		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
-			continue
-		}
-		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
-			newest = lock
-		}
-	}
-	return newest
-}
-
-// drawTarget returns the newest card lock even when it cannot be drawn, so the
-// caller can be told why.
-func drawTarget(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
-	var newest *cs.LoadedLock
-	for idx := range locks {
-		lock := &locks[idx]
-		if !lock.IsCardLock() {
-			continue
-		}
-		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
-			continue
-		}
-		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
-			newest = lock
-		}
-	}
-	return newest
 }
 
 // drawBlockedMessage explains why a card lock cannot be drawn. An empty
@@ -1006,15 +969,6 @@ func interactionName(i *discordgo.InteractionCreate) string {
 		}
 	}
 	return "this member"
-}
-
-func findLockByID(locks []cs.LoadedLock, id cs.ID) *cs.LoadedLock {
-	for idx := range locks {
-		if locks[idx].ID == id {
-			return &locks[idx]
-		}
-	}
-	return nil
 }
 
 func newSessionID() string {

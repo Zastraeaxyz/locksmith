@@ -41,7 +41,7 @@ func (f *Feature) handleLockOpen(ctx context.Context, s *discordgo.Session, i *d
 		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 
-	lock, note, err := pickOpenLock(ref, filterOwn(locks, cred.ChastiSafeID), f.now())
+	lock, note, err := pickOpenLock(ref, ownLocks(locks, cred.ChastiSafeID), f.now())
 	if err != nil {
 		return bot.EditChunks(s, i, err.Error(), !public)
 	}
@@ -73,33 +73,24 @@ func (f *Feature) handleLockOpen(ctx context.Context, s *discordgo.Session, i *d
 // no reference is given. Errors explain why no lock can be opened.
 func pickOpenLock(ref string, locks []cs.LoadedLock, now time.Time) (*cs.LoadedLock, string, error) {
 	if strings.TrimSpace(ref) != "" {
-		target, note, err := resolveLogTarget(ref, locks, nil)
+		resolved, note, err := resolveRef(ref, locks, nil)
 		if err != nil {
 			return nil, "", err
 		}
-		if target == nil || target.running == nil {
+		if resolved.Running == nil {
 			return nil, "", fmt.Errorf("No active lock matches `%s`.", ref)
 		}
-		if err := openNotReadyError(target.running, now); err != nil {
+		if err := openNotReadyError(resolved.Running, now); err != nil {
 			return nil, "", err
 		}
-		return target.running, note, nil
+		return resolved.Running, note, nil
 	}
 
 	if len(locks) == 0 {
 		return nil, "", errors.New("You have no active ChastiSafe locks.")
 	}
 
-	var ready *cs.LoadedLock
-	for idx := range locks {
-		lock := &locks[idx]
-		if !lock.IsReady() || lock.IsFrozen() {
-			continue
-		}
-		if ready == nil || lock.LoadTime.Time.After(ready.LoadTime.Time) {
-			ready = lock
-		}
-	}
+	ready := readyOpenLock(locks, "")
 	if ready == nil {
 		return nil, "", openNotReadyError(newestRunning(locks), now)
 	}
@@ -109,16 +100,6 @@ func pickOpenLock(ref string, locks []cs.LoadedLock, now time.Time) (*cs.LoadedL
 		note = fmt.Sprintf("Using **%s**, the newest ready lock. Pass `ref` to choose another.", lockName(ready))
 	}
 	return ready, note, nil
-}
-
-func countReadyLocks(locks []cs.LoadedLock) int {
-	count := 0
-	for idx := range locks {
-		if locks[idx].IsReady() && !locks[idx].IsFrozen() {
-			count++
-		}
-	}
-	return count
 }
 
 // openNotReadyError explains why a lock cannot be opened. It returns nil when
