@@ -151,7 +151,7 @@ func (f *Feature) handleDocumentView(ctx context.Context, s *discordgo.Session, 
 func documentEmbed(kind, name, content string) *discordgo.MessageEmbed {
 	return &discordgo.MessageEmbed{
 		Title:       fmt.Sprintf("%s's %s", name, kindLabel(kind)),
-		Description: truncateRunes(content, documentMaxLength),
+		Description: clip(content, documentMaxLength),
 		Color:       documentColor(kind),
 	}
 }
@@ -218,7 +218,7 @@ func (f *Feature) handleDocumentModal(ctx context.Context, s *discordgo.Session,
 }
 
 func documentModal(kind, current string) *discordgo.InteractionResponseData {
-	current = truncateRunes(current, documentMaxLength)
+	current = clip(current, documentMaxLength)
 	return &discordgo.InteractionResponseData{
 		Title:    modalTitle(kind),
 		CustomID: kind + ":edit",
@@ -294,14 +294,6 @@ func documentColor(kind string) int {
 	default:
 		return 0x5865F2
 	}
-}
-
-func truncateRunes(text string, limit int) string {
-	runes := []rune(text)
-	if len(runes) <= limit {
-		return text
-	}
-	return string(runes[:limit])
 }
 
 func kindLabel(kind string) string {

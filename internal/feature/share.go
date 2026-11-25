@@ -190,7 +190,7 @@ func shareEmbed(template *cs.Template, baseURL, sharer string) *discordgo.Messag
 	}
 	if description := strings.TrimSpace(template.Description); description != "" {
 		b.WriteString("\n")
-		b.WriteString(truncateRunes(description, 700))
+		b.WriteString(clip(description, 700))
 		b.WriteString("\n")
 	}
 

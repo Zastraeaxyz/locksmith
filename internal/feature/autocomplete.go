@@ -154,7 +154,7 @@ func buildRefChoices(ref string, candidates []refChoice) []*discordgo.Applicatio
 			name = fmt.Sprintf("%s (%s)", name, match.id)
 		}
 		choices = append(choices, &discordgo.ApplicationCommandOptionChoice{
-			Name:  truncateRunes(name, 100),
+			Name:  clip(name, 100),
 			Value: match.id.String(),
 		})
 	}

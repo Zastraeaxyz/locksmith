@@ -331,7 +331,7 @@ func (s *drawSession) embed(lock *cs.LoadedLock, note string) *discordgo.Message
 
 	return &discordgo.MessageEmbed{
 		Title:       s.lockName,
-		Description: truncate(b.String(), drawDescriptionLimit),
+		Description: ellipsize(b.String(), drawDescriptionLimit),
 		Color:       cardColor(lastCard),
 	}
 }
