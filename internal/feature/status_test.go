@@ -125,8 +125,11 @@ func TestStatusFrozenSince(t *testing.T) {
 		now,
 	)
 
-	if !strings.Contains(text, ":ice_cube: Frozen since <t:") {
-		t.Errorf("status missing frozen timestamp:\n%s", text)
+	if !strings.Contains(text, ":ice_cube: Frozen for 2hr") {
+		t.Errorf("status missing frozen duration:\n%s", text)
+	}
+	if strings.Contains(text, ":ice_cube: Frozen for <t:") {
+		t.Errorf("frozen duration should not be a relative timestamp:\n%s", text)
 	}
 	if strings.Contains(text, "check-in") || strings.Contains(text, "Check-in") {
 		t.Errorf("state line should not repeat check-in:\n%s", text)
@@ -152,10 +155,11 @@ func TestStatusLoadedElapsed(t *testing.T) {
 		ago  time.Duration
 		want string
 	}{
-		{name: "days hours minutes", ago: 39*time.Hour + 56*time.Minute, want: "loaded 1d 15hr 56m"},
-		{name: "hours minutes", ago: 5*time.Hour + 12*time.Minute, want: "loaded 5hr 12m"},
-		{name: "minutes", ago: 42 * time.Minute, want: "loaded 42m"},
-		{name: "less than a minute", ago: 30 * time.Second, want: "loaded just now"},
+		{name: "days hours minutes", ago: 39*time.Hour + 56*time.Minute, want: "locked for 1d 15hr 56m"},
+		{name: "hours minutes", ago: 5*time.Hour + 12*time.Minute, want: "locked for 5hr 12m"},
+		{name: "whole hours", ago: 3 * time.Hour, want: "locked for 3hr"},
+		{name: "minutes", ago: 42 * time.Minute, want: "locked for 42m"},
+		{name: "less than a minute", ago: 30 * time.Second, want: "locked for just now"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

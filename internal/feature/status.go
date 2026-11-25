@@ -138,7 +138,7 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 	switch {
 	case lock.IsFrozen():
 		if since, ok := opts.freezeSince[lock.ID]; ok && !since.IsZero() {
-			parts = append(parts, ":ice_cube: Frozen since "+relativeTimestamp(since))
+			parts = append(parts, ":ice_cube: Frozen for "+elapsedLabel(opts.now.Sub(since)))
 		} else {
 			parts = append(parts, ":ice_cube: Frozen")
 		}
@@ -151,7 +151,7 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 		parts = append(parts, "hidden")
 	}
 	if !lock.LoadTime.IsZero() {
-		parts = append(parts, "loaded "+elapsedLabel(opts.now.Sub(lock.LoadTime.Time)))
+		parts = append(parts, "locked for "+elapsedLabel(opts.now.Sub(lock.LoadTime.Time)))
 	}
 	return strings.Join(parts, " · ")
 }
@@ -169,10 +169,14 @@ func elapsedLabel(d time.Duration) string {
 	mins := minutes % 60
 
 	switch {
-	case days > 0:
+	case days > 0 && mins > 0:
 		return fmt.Sprintf("%dd %dhr %dm", days, hours, mins)
-	case hours > 0:
+	case days > 0:
+		return fmt.Sprintf("%dd %dhr", days, hours)
+	case hours > 0 && mins > 0:
 		return fmt.Sprintf("%dhr %dm", hours, mins)
+	case hours > 0:
+		return fmt.Sprintf("%dhr", hours)
 	default:
 		return fmt.Sprintf("%dm", mins)
 	}
