@@ -79,7 +79,6 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	now := f.now()
 	lock := findLock(locks, n.LockID, cred.ChastiSafeID, now)
 	if lock == nil {
-		_ = sendDM(s, userID, "Your ChastiSafe lock is no longer active, so notifications are off.")
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
