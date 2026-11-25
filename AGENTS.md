@@ -4,7 +4,7 @@
 
 - Use conventional commits (`feat:`, `fix:`, `chore:`, ...) and commit in small, frequent increments.
 - never leave uncommitted changes
-- After committing, push the branch, then run `mise deploy` if the push had no conflicts.
+- After committing, push the branch. Run `mise deploy` only if the push had no conflicts and the commit is not a `chore:` or `docs:` change.
 - Always commit as `Author: zastraeaxyz <zastraea@proton.me>`
 
 ## Analytics
