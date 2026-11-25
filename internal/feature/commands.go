@@ -82,6 +82,11 @@ func lockCommand() *discordgo.ApplicationCommand {
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "rate",
+				Description: "Rate your most recently completed lock",
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "checkin",
 				Description: "Record a required check-in",
 				Options: []*discordgo.ApplicationCommandOption{
@@ -314,6 +319,8 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 		return f.handleLockOpen(ctx, s, i, sub.Options)
 	case "checkin":
 		return f.handleLockCheckin(ctx, s, i, sub.Options)
+	case "rate":
+		return f.handleLockRate(ctx, s, i)
 	case "share":
 		return f.handleLockShare(ctx, s, i, sub.Options)
 	case "notify":

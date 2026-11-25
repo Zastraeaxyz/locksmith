@@ -109,6 +109,7 @@ func (f *Feature) Register(b *bot.Bot) {
 	b.AddComponent(drawNamespace, f.handleDrawComponent)
 	b.AddComponent(drawBoardNamespace, f.handleDrawBoardComponent)
 	b.AddComponent(checkinNamespace, f.handleCheckinComponent)
+	b.AddComponent(rateNamespace, f.handleRateComponent)
 	b.AddComponent(shareNamespace, f.handleShareComponent)
 	b.AddComponent(simulationNamespace, f.handleSimulationComponent)
 	b.AddAutocomplete("lock", f.handleLockAutocomplete)

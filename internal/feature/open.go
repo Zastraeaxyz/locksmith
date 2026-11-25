@@ -66,7 +66,10 @@ func (f *Feature) handleLockOpen(ctx context.Context, s *discordgo.Session, i *d
 	if note != "" {
 		text = note + "\n\n" + text
 	}
-	return bot.EditChunks(s, i, text, !public)
+	if err := bot.EditChunks(s, i, text, !public); err != nil {
+		return err
+	}
+	return f.sendRatePrompt(s, i, lock)
 }
 
 // pickOpenLock selects a ready lock by reference, or the newest ready lock when

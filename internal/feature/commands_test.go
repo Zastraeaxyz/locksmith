@@ -35,6 +35,7 @@ func TestLoginWelcomeText(t *testing.T) {
 		"set your device to the code I reply with",
 		"`/lock draw`",
 		"`/lock checkin [ref]`",
+		"`/lock rate`",
 		"`/lock share ref:<template>`",
 		"`/lock notify [enabled]`",
 		"`/lock log [full] [ref]`",

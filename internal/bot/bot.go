@@ -467,7 +467,13 @@ func DeleteResponse(s *discordgo.Session, i *discordgo.InteractionCreate) error 
 // ReplyFollowup sends a follow-up to an interaction that has already been
 // acknowledged. An ephemeral follow-up is private.
 func ReplyFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, ephemeral bool) error {
-	params := &discordgo.WebhookParams{Content: content}
+	return ReplyFollowupEmbed(s, i, content, nil, nil, ephemeral)
+}
+
+// ReplyFollowupEmbed sends a follow-up with an optional embed and component
+// row to an interaction that has already been acknowledged.
+func ReplyFollowupEmbed(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, components []discordgo.MessageComponent, ephemeral bool) error {
+	params := &discordgo.WebhookParams{Content: content, Embeds: embeds, Components: components}
 	if ephemeral {
 		params.Flags = discordgo.MessageFlagsEphemeral
 	}

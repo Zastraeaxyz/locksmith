@@ -198,7 +198,10 @@ func (f *Feature) drawOpen(ctx context.Context, s *discordgo.Session, i *discord
 	if err := f.renderBoard(s, i, session, lock, false, openBoardNote(i)); err != nil {
 		return err
 	}
-	return replyBoardCode(s, i, lock, result.Code)
+	if err := replyBoardCode(s, i, lock, result.Code); err != nil {
+		return err
+	}
+	return f.sendRatePrompt(s, i, lock)
 }
 
 // drawGreenBack returns the last green card to the deck and keeps the board
