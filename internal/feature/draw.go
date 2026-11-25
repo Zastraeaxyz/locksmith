@@ -2,12 +2,9 @@ package feature
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -27,253 +24,6 @@ const (
 	resetConfirmInput = "confirm"
 	resetConfirmation = "YES RESET"
 )
-
-type drawEntry struct {
-	card        cs.Card
-	dice        int
-	byKeyholder bool
-}
-
-// drawSession is one public draw board. It is keyed by an opaque ID embedded
-// in the button custom IDs, so it survives edits and does not depend on the
-// message ID.
-type drawSession struct {
-	mu sync.Mutex
-	id string
-
-	ownerID       string
-	ownerName     string
-	keyholderID   string
-	keyholderName string
-
-	lockID   cs.ID
-	lockName string
-
-	channelID string
-	messageID string
-	startedAt time.Time
-
-	entries  []drawEntry
-	lastCard cs.Card
-	lastLock *cs.LoadedLock
-	busy     bool
-}
-
-func (s *drawSession) begin() bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.busy {
-		return false
-	}
-	s.busy = true
-	return true
-}
-
-func (s *drawSession) end() {
-	s.mu.Lock()
-	s.busy = false
-	s.mu.Unlock()
-}
-
-func (s *drawSession) add(entry drawEntry) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries = append(s.entries, entry)
-	if entry.card != "" {
-		s.lastCard = entry.card
-	}
-}
-
-func (s *drawSession) setLock(lock *cs.LoadedLock) {
-	s.mu.Lock()
-	s.lastLock = lock
-	s.mu.Unlock()
-}
-
-func (s *drawSession) snapshot() ([]drawEntry, cs.Card, *cs.LoadedLock) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]drawEntry(nil), s.entries...), s.lastCard, s.lastLock
-}
-
-func (s *drawSession) currentLock() *cs.LoadedLock {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.lastLock
-}
-
-func (s *drawSession) setMessageID(id string) {
-	s.mu.Lock()
-	s.messageID = id
-	s.mu.Unlock()
-}
-
-func (s *drawSession) messageIDs() (channelID, messageID string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.channelID, s.messageID
-}
-
-func (s *drawSession) canUse(userID string) bool {
-	if userID == "" {
-		return false
-	}
-	if userID == s.ownerID {
-		return true
-	}
-	return s.keyholderID != "" && userID == s.keyholderID
-}
-
-// startDrawBoard posts the public draw board for the caller's card lock.
-func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	userID := bot.UserID(i)
-	if userID == "" {
-		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
-	}
-	// The draw board is the interaction response, so acknowledge publicly. A
-	// blocked draw deletes this placeholder and answers privately instead.
-	if err := bot.Defer(s, i, false); err != nil {
-		return err
-	}
-	return f.postDrawBoard(ctx, s, i, userID, "")
-}
-
-// handleDrawBoardComponent opens a fresh draw board from a draw notification
-// DM. The board is a new message in the same DM, so the notification stays put.
-func (f *Feature) handleDrawBoardComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	parts := strings.Split(i.MessageComponentData().CustomID, ":")
-	if len(parts) != 3 || parts[1] != "open" || strings.TrimSpace(parts[2]) == "" {
-		return bot.ReplyEphemeral(s, i, "This button is out of date.")
-	}
-
-	userID := bot.UserID(i)
-	if userID == "" {
-		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
-	}
-	if err := bot.Defer(s, i, false); err != nil {
-		return err
-	}
-	return f.postDrawBoard(ctx, s, i, userID, cs.ID(parts[2]))
-}
-
-// postDrawBoard posts the board in the interaction's channel. The caller must
-// have deferred the reply publicly. An empty lockID picks the newest drawable
-// lock, while a given ID pins the board to a lock from a notification.
-func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, userID string, lockID cs.ID) error {
-	client, cred, err := f.clientFor(ctx, userID)
-	if err != nil {
-		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
-	}
-	locks, err := client.Loaded(ctx)
-	if err != nil {
-		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
-	}
-
-	lock, refusal := f.resolveBoardLock(ctx, client, locks, cred.ChastiSafeID, lockID)
-	if lock == nil {
-		return f.replyDrawPrivate(s, i, refusal)
-	}
-
-	session := &drawSession{
-		id:            newSessionID(),
-		ownerID:       userID,
-		ownerName:     interactionName(i),
-		keyholderID:   externalKeyholderID(lock),
-		keyholderName: strings.TrimSpace(lock.Keyholder),
-		lockID:        lock.ID,
-		lockName:      lockName(lock),
-		channelID:     i.ChannelID,
-		startedAt:     f.now(),
-	}
-	session.setLock(lock)
-
-	f.putSession(session)
-	msg, err := bot.EditMessageGet(s, i, "",
-		[]*discordgo.MessageEmbed{session.embed(lock, "")}, drawButtons(session, lock))
-	if err != nil {
-		return err
-	}
-	if msg != nil {
-		session.setMessageID(msg.ID)
-	}
-	return nil
-}
-
-// resolveBoardLock picks the lock for a board and explains any refusal. A
-// lockID pins one lock, while an empty ID picks the newest drawable lock or a
-// ready one, so the ready actions stay reachable.
-func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks []cs.LoadedLock, chastisafeID string, lockID cs.ID) (*cs.LoadedLock, string) {
-	now := f.now()
-
-	if lockID != "" {
-		lock := findLockByID(locks, lockID)
-		switch {
-		case lock == nil:
-			return nil, "That lock is no longer active. Run `/lock draw` to pick another."
-		case chastisafeID != "" && lock.LockeeID.String() != chastisafeID:
-			return nil, "That lock is not yours."
-		case !lock.IsCardLock():
-			return nil, fmt.Sprintf("**%s** is not a card lock.", lockName(lock))
-		case lock.IsFrozen():
-			freeze := f.freezeTimes(ctx, client, []cs.LoadedLock{*lock})
-			return nil, drawBlockedMessage(lock, freeze, now)
-		case !lock.IsReady() && lock.DrawsAvailable() == 0:
-			return nil, drawBlockedMessage(lock, nil, now)
-		}
-		return lock, ""
-	}
-
-	lock := drawableLock(locks, chastisafeID)
-	if lock == nil {
-		lock = readyCardLock(locks, chastisafeID)
-	}
-	if lock != nil {
-		return lock, ""
-	}
-
-	target := drawRefusalTarget(locks, chastisafeID)
-	freeze := map[cs.ID]time.Time{}
-	if target != nil && target.IsFrozen() {
-		freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
-	}
-	return nil, drawBlockedMessage(target, freeze, now)
-}
-
-// replyDrawPrivate removes the public placeholder and answers privately, since
-// Discord cannot change the visibility of a response that was already posted.
-func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.InteractionCreate, content string) error {
-	if err := bot.DeleteResponse(s, i); err != nil {
-		f.log.Warn("deleting draw placeholder", "err", err)
-	}
-	return bot.ReplyEphemeralFollowup(s, i, content)
-}
-
-// drawBlockedMessage explains why a card lock cannot be drawn. An empty
-// message means the lock is drawable.
-func drawBlockedMessage(lock *cs.LoadedLock, freezeSince map[cs.ID]time.Time, now time.Time) string {
-	if lock == nil {
-		return "You have no active card lock to draw from."
-	}
-	name := lockName(lock)
-	switch {
-	case lock.IsFrozen():
-		if since, ok := freezeSince[lock.ID]; ok && !since.IsZero() {
-			return fmt.Sprintf("**%s** is frozen since %s. Drawing is unavailable until it is unfrozen.",
-				name, relativeTimestamp(since))
-		}
-		return fmt.Sprintf("**%s** is frozen. Drawing is unavailable until it is unfrozen.", name)
-	case lock.IsReady():
-		return fmt.Sprintf("**%s** is ready to unlock. There is nothing left to draw.", name)
-	case lock.DrawsAvailable() == 0:
-		if wait := lock.NextPickIn(); wait > 0 {
-			return fmt.Sprintf("No draws available yet for **%s**. Next draw %s.",
-				name, relativeTimestamp(now.Add(wait)))
-		}
-		return fmt.Sprintf("No draws available right now for **%s**.", name)
-	default:
-		return ""
-	}
-}
 
 func (f *Feature) handleDrawComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	parts := strings.Split(i.MessageComponentData().CustomID, ":")
@@ -327,10 +77,9 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return err
 	}
 
-	client, _, err := f.clientFor(ctx, session.ownerID)
-	if err != nil {
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, nil, false, f.apiFailure(ctx, session.ownerID, err))
+	client, note, ok := f.boardClient(ctx, session)
+	if !ok {
+		return f.renderBoard(s, i, session, nil, false, note)
 	}
 
 	locks, err := client.Loaded(ctx)
@@ -343,12 +92,10 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, nil, true, note)
 	}
 
-	lock := findLockByID(locks, session.lockID)
-	if lock == nil {
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, nil, false, "That lock is no longer active.")
+	lock, note, ok := f.boardLock(locks, session)
+	if !ok {
+		return f.renderBoard(s, i, session, nil, false, note)
 	}
-	session.setLock(lock)
 
 	switch {
 	case lock.IsReady():
@@ -381,18 +128,18 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 	})
 
 	ready := updated.IsReady()
-	keep := ready || (updated.DrawsAvailable() > 0 && !updated.IsFrozen())
-	var note string
+	keep := boardKeepsOpen(updated)
+	drawNote := ""
 	if ready {
-		note = "That was the last draw. The lock is ready to unlock."
+		drawNote = "That was the last draw. The lock is ready to unlock."
 	} else if result.Done {
-		note = "That was the last draw."
+		drawNote = "That was the last draw."
 	}
 
 	if !keep {
 		f.deleteSession(session.id)
 	}
-	return f.renderBoard(s, i, session, updated, keep, note)
+	return f.renderBoard(s, i, session, updated, keep, drawNote)
 }
 
 func (f *Feature) drawStop(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession) error {
@@ -421,20 +168,18 @@ func (f *Feature) drawOpen(ctx context.Context, s *discordgo.Session, i *discord
 		return err
 	}
 
-	client, _, err := f.clientFor(ctx, session.ownerID)
-	if err != nil {
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, nil, false, f.apiFailure(ctx, session.ownerID, err))
+	client, note, ok := f.boardClient(ctx, session)
+	if !ok {
+		return f.renderBoard(s, i, session, nil, false, note)
 	}
 	locks, err := client.Loaded(ctx)
 	if err != nil {
 		return f.renderBoard(s, i, session, session.currentLock(), true, f.apiFailure(ctx, session.ownerID, err))
 	}
 
-	lock := findLockByID(locks, session.lockID)
-	if lock == nil {
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, nil, false, "That lock is no longer active.")
+	lock, note, ok := f.boardLock(locks, session)
+	if !ok {
+		return f.renderBoard(s, i, session, nil, false, note)
 	}
 	if !lock.IsReady() {
 		return f.renderBoard(s, i, session, lock, true, "That lock is not ready to open yet.")
@@ -449,14 +194,10 @@ func (f *Feature) drawOpen(ctx context.Context, s *discordgo.Session, i *discord
 	f.forgetLockAutocomplete(session.ownerID)
 	f.log.Info("lock opened from the draw board", "user_id", session.ownerID, "lock_id", lock.ID.String())
 
-	note := "Opened. The code was sent privately."
-	if i.GuildID == "" {
-		note = "Opened. The code is below."
-	}
-	if err := f.renderBoard(s, i, session, lock, false, note); err != nil {
+	if err := f.renderBoard(s, i, session, lock, false, openBoardNote(i)); err != nil {
 		return err
 	}
-	return bot.ReplyFollowup(s, i, openResultText(lock, result.Code), i.GuildID != "")
+	return replyBoardCode(s, i, lock, result.Code)
 }
 
 // drawGreenBack returns the last green card to the deck and keeps the board
@@ -486,12 +227,10 @@ func (f *Feature) drawGreenBack(ctx context.Context, s *discordgo.Session, i *di
 		return f.renderBoard(s, i, session, session.currentLock(), true,
 			"Put the last green back in the deck, but I could not refresh the lock.")
 	}
-	lock := findLockByID(locks, session.lockID)
-	if lock == nil {
-		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, nil, false, "That lock is no longer active.")
+	lock, note, ok := f.boardLock(locks, session)
+	if !ok {
+		return f.renderBoard(s, i, session, nil, false, note)
 	}
-	session.setLock(lock)
 	return f.renderBoard(s, i, session, lock, true, "Put the last green back in the deck.")
 }
 
@@ -616,227 +355,6 @@ func (f *Feature) handleResetModal(ctx context.Context, s *discordgo.Session, i 
 		f.log.Warn("updating the board after reset", "err", err)
 	}
 	return sendEphemeral(s, i, fmt.Sprintf("**%s** was reset. Drawing starts over from the beginning.", lockName(lock)))
-}
-
-func (f *Feature) renderBoard(s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, lock *cs.LoadedLock, buttons bool, note string) error {
-	embed := session.embed(lock, note)
-	components := []discordgo.MessageComponent{}
-	if buttons {
-		components = drawButtons(session, lock)
-	}
-	msg, err := bot.EditMessageGet(s, i, "", []*discordgo.MessageEmbed{embed}, components)
-	if err != nil {
-		return err
-	}
-	if msg != nil {
-		session.setMessageID(msg.ID)
-	}
-	return nil
-}
-
-// editBoardMessage updates the board outside the interaction that created it,
-// which a reset confirmation needs because its modal submit is a new
-// interaction with its own token.
-func (f *Feature) editBoardMessage(s *discordgo.Session, session *drawSession, lock *cs.LoadedLock, buttons bool, note string) error {
-	channelID, messageID := session.messageIDs()
-	if channelID == "" || messageID == "" {
-		return errors.New("draw: board message is unknown")
-	}
-
-	embed := session.embed(lock, note)
-	components := []discordgo.MessageComponent{}
-	if buttons {
-		components = drawButtons(session, lock)
-	}
-	_, err := s.ChannelMessageEditComplex(&discordgo.MessageEdit{
-		Channel:    channelID,
-		ID:         messageID,
-		Embeds:     &[]*discordgo.MessageEmbed{embed},
-		Components: &components,
-	})
-	return err
-}
-
-func (s *drawSession) embed(lock *cs.LoadedLock, note string) *discordgo.MessageEmbed {
-	entries, lastCard, stored := s.snapshot()
-	if lock == nil {
-		lock = stored
-	}
-
-	var b strings.Builder
-	b.WriteString(renderDrawLog(entries))
-	b.WriteString("\n\n")
-	b.WriteString(drawStatsLine(lock, len(entries)))
-	if next := nextDrawLine(lock, time.Now()); next != "" {
-		b.WriteString("\n")
-		b.WriteString(next)
-	}
-	if note != "" {
-		b.WriteString("\n\n")
-		b.WriteString(note)
-	}
-	if len(entries) > 0 {
-		b.WriteString("\n\n")
-		remaining, ok := cardsRemaining(lock)
-		b.WriteString(totalsLine(entries, remaining, ok))
-	}
-
-	return &discordgo.MessageEmbed{
-		Title:       s.lockName,
-		Description: truncate(b.String(), drawDescriptionLimit),
-		Color:       cardColor(lastCard),
-	}
-}
-
-// drawButtons renders the board controls. The ready actions appear only when
-// the lock has nothing left to draw, so a running lock cannot be opened or
-// reset by accident.
-func drawButtons(session *drawSession, lock *cs.LoadedLock) []discordgo.MessageComponent {
-	if session == nil {
-		return nil
-	}
-
-	buttons := make([]discordgo.MessageComponent, 0, 4)
-	if lock != nil && lock.IsReady() {
-		buttons = append(buttons,
-			discordgo.Button{
-				CustomID: drawNamespace + ":open:" + session.id,
-				Label:    "Open",
-				Style:    discordgo.SuccessButton,
-			},
-			discordgo.Button{
-				CustomID: drawNamespace + ":green:" + session.id,
-				Label:    "Put green back",
-				Style:    discordgo.DangerButton,
-				Emoji:    cardComponentEmoji(cs.CardGreen),
-			},
-			discordgo.Button{
-				CustomID: drawNamespace + ":reset:" + session.id,
-				Label:    "Reset",
-				Style:    discordgo.SecondaryButton,
-			},
-		)
-		if session.keyholderID != "" {
-			buttons = append(buttons, discordgo.Button{
-				CustomID: drawNamespace + ":decide:" + session.id,
-				Label:    "Let keyholder decide",
-				Style:    discordgo.PrimaryButton,
-			})
-		}
-	} else {
-		buttons = append(buttons,
-			discordgo.Button{
-				CustomID: drawNamespace + ":next:" + session.id,
-				Label:    "Draw",
-				Style:    discordgo.PrimaryButton,
-			},
-			discordgo.Button{
-				CustomID: drawNamespace + ":stop:" + session.id,
-				Label:    "Stop",
-				Style:    discordgo.SecondaryButton,
-			},
-		)
-	}
-
-	return []discordgo.MessageComponent{
-		discordgo.ActionsRow{Components: buttons},
-	}
-}
-
-func renderDrawLog(entries []drawEntry) string {
-	var b strings.Builder
-	b.WriteString("**Draws this session**")
-	if len(entries) == 0 {
-		b.WriteString("\nNo draws yet.")
-		return b.String()
-	}
-
-	start := 0
-	if len(entries) > drawLogLimit {
-		start = len(entries) - drawLogLimit
-		fmt.Fprintf(&b, "\n… %d earlier draw(s) not shown", start)
-	}
-	for idx := start; idx < len(entries); idx++ {
-		entry := entries[idx]
-		fmt.Fprintf(&b, "\n%d. ", idx+1)
-		switch {
-		case entry.card != "":
-			writeCardEmoji(&b, entry.card)
-			b.WriteString(cardLogLabel(entry.card))
-			if entry.card == cs.CardDice && entry.dice > 0 {
-				fmt.Fprintf(&b, " (%d)", entry.dice)
-			}
-		case entry.dice > 0:
-			writeCardEmoji(&b, cs.CardDice)
-			fmt.Fprintf(&b, "Dice %d", entry.dice)
-		default:
-			b.WriteString("Draw")
-		}
-		if entry.byKeyholder {
-			b.WriteString(" · keyholder")
-		}
-	}
-	return b.String()
-}
-
-func drawStatsLine(lock *cs.LoadedLock, used int) string {
-	left := 0
-	if lock != nil {
-		left = lock.DrawsAvailable()
-	}
-	return fmt.Sprintf("%d used · %d left", used, left)
-}
-
-func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
-	if lock == nil {
-		return ""
-	}
-	switch {
-	case lock.IsReady():
-		return "Ready to unlock."
-	case lock.IsFrozen():
-		return "Frozen."
-	case lock.DrawsAvailable() > 0:
-		return ""
-	}
-	wait := lock.NextPickIn()
-	if wait <= 0 {
-		return ""
-	}
-	return fmt.Sprintf("Next draw %s", relativeTimestamp(now.Add(wait)))
-}
-
-func totalsLine(entries []drawEntry, remaining int, hasRemaining bool) string {
-	reds, greens, yellows, doubles := 0, 0, 0, 0
-	for _, entry := range entries {
-		switch entry.card {
-		case cs.CardRed:
-			reds++
-		case cs.CardGreen:
-			greens++
-		case cs.CardDoubleUp:
-			doubles++
-		case cs.CardYellowP1, cs.CardYellowP2, cs.CardYellowP3,
-			cs.CardYellowM1, cs.CardYellowM2, cs.CardYellow,
-			cs.CardYellowUK, cs.CardYellowRN:
-			yellows++
-		}
-	}
-
-	parts := []string{
-		fmt.Sprintf("%s %d red", cardEmojiMarkup(cs.CardRed), reds),
-		fmt.Sprintf("%s %d green", cardEmojiMarkup(cs.CardGreen), greens),
-	}
-	if yellows > 0 {
-		parts = append(parts, fmt.Sprintf("%s %d yellow", cardEmojiMarkup(cs.CardYellow), yellows))
-	}
-	if doubles > 0 {
-		parts = append(parts, fmt.Sprintf("%s %d double up", cardEmojiMarkup(cs.CardDoubleUp), doubles))
-	}
-	if hasRemaining {
-		parts = append(parts, fmt.Sprintf("%d remaining", remaining))
-	}
-	return "Totals: " + strings.Join(parts, ", ")
 }
 
 // cardEmojiIDs are application emoji, so they render in DMs and in any guild
@@ -968,46 +486,4 @@ func interactionName(i *discordgo.InteractionCreate) string {
 		}
 	}
 	return "this member"
-}
-
-func newSessionID() string {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		return fmt.Sprintf("%d", time.Now().UnixNano())
-	}
-	return hex.EncodeToString(buf)
-}
-
-func (f *Feature) putSession(session *drawSession) {
-	f.sessionsMu.Lock()
-	defer f.sessionsMu.Unlock()
-
-	now := f.now()
-	for id, existing := range f.sessions {
-		if now.Sub(existing.startedAt) > drawSessionTTL {
-			delete(f.sessions, id)
-		}
-	}
-	f.sessions[session.id] = session
-}
-
-func (f *Feature) session(id string) (*drawSession, bool) {
-	f.sessionsMu.Lock()
-	defer f.sessionsMu.Unlock()
-
-	session, ok := f.sessions[id]
-	if !ok {
-		return nil, false
-	}
-	if f.now().Sub(session.startedAt) > drawSessionTTL {
-		delete(f.sessions, id)
-		return nil, false
-	}
-	return session, true
-}
-
-func (f *Feature) deleteSession(id string) {
-	f.sessionsMu.Lock()
-	delete(f.sessions, id)
-	f.sessionsMu.Unlock()
 }
