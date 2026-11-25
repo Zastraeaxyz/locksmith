@@ -159,7 +159,7 @@ func lockCommand() *discordgo.ApplicationCommand {
 
 // handleLoginCommand shows the developer-code modal.
 func (f *Feature) handleLoginCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	if f.store == nil || f.box == nil {
+	if !f.configured() {
 		return bot.ReplyEphemeral(s, i, "Locksmith is not configured to store codes.")
 	}
 	return s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{

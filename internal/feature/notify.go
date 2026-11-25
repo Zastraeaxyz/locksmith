@@ -68,7 +68,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		if errors.Is(err, cs.ErrUnauthorized) {
 			f.log.Info("chastisafe rejected a saved code during notify", "user_id", userID)
 			_ = f.store.Unsubscribe(ctx, userID)
-			_ = f.store.DeleteCredential(ctx, userID)
+			f.apiFailure(ctx, userID, err)
 			return
 		}
 		f.log.Warn("notification fetch failed", "user_id", userID, "err", err)

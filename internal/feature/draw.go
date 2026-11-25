@@ -335,13 +335,12 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 
 	locks, err := client.Loaded(ctx)
 	if err != nil {
+		note := f.apiFailure(ctx, session.ownerID, err)
 		if errors.Is(err, cs.ErrUnauthorized) {
-			_ = f.store.DeleteCredential(ctx, session.ownerID)
 			f.deleteSession(session.id)
-			return f.renderBoard(s, i, session, nil, false, "ChastiSafe rejected the saved code. Run `/login` again.")
+			return f.renderBoard(s, i, session, nil, false, note)
 		}
-		return f.renderBoard(s, i, session, nil, true,
-			"I could not reach ChastiSafe right now. Try again in a moment.")
+		return f.renderBoard(s, i, session, nil, true, note)
 	}
 
 	lock := findLockByID(locks, session.lockID)
