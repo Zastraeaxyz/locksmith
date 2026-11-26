@@ -78,7 +78,7 @@ _Avoid_: Finished, complete, done
 
 **Frozen**:
 A lock state that blocks drawing and changes. It is set by the keyholder or by a
-freeze card.
+freeze card. A card freeze lasts at least twice the lock's draw interval.
 _Avoid_: Paused, locked out
 
 **Simulation**:

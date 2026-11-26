@@ -110,6 +110,11 @@ func renderLockStatusBody(lock *cs.LoadedLock, role cs.LockRole, opts statusOpti
 	b.WriteString(stateLine(lock, opts))
 	b.WriteString("\n")
 
+	if line := freezeMinimumLine(lock); line != "" {
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+
 	if line := peopleLine(lock, opts.viewerID); line != "" {
 		b.WriteString(line)
 		b.WriteString("\n")
@@ -172,6 +177,17 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 		parts = append(parts, "locked for "+elapsedLabel(opts.now.Sub(lock.LoadTime.Time)))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// freezeMinimumLine explains the shortest freeze. A freeze card holds for two
+// to four draw intervals, so the minimum scales with the lock's draw time.
+func freezeMinimumLine(lock *cs.LoadedLock) string {
+	if lock == nil || !lock.IsFrozen() || lock.Regularity <= 0 {
+		return ""
+	}
+	minimum := elapsedLabel(time.Duration(2*lock.Regularity) * time.Minute)
+	interval := elapsedLabel(time.Duration(lock.Regularity) * time.Minute)
+	return fmt.Sprintf(":hourglass: Minimum freeze %s (2x the %s draw interval)", minimum, interval)
 }
 
 // lockStatusColor maps a lock's state to the draw board palette: icy blue when
