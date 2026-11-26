@@ -232,7 +232,7 @@ func TestDrawBlockedMessage(t *testing.T) {
 
 	frozen := &cs.LoadedLock{ID: "f", LockName: "Frozen Lock", Type: "card", FrozenByKeyholder: true}
 	got := drawBlockedMessage(frozen, map[cs.ID]time.Time{"f": now.Add(-time.Hour)}, now)
-	for _, want := range []string{"Frozen Lock", "frozen since <t:", ":R>", "unfrozen"} {
+	for _, want := range []string{"Frozen Lock", "frozen since <t:", ":f>", "unfrozen"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("frozen message missing %q:\n%s", want, got)
 		}

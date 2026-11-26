@@ -268,7 +268,7 @@ func drawBlockedMessage(lock *cs.LoadedLock, freezeSince map[cs.ID]time.Time, no
 	case lock.IsFrozen():
 		if since, ok := freezeSince[lock.ID]; ok && !since.IsZero() {
 			return fmt.Sprintf("**%s** is frozen since %s. Drawing is unavailable until it is unfrozen.",
-				name, relativeTimestamp(since))
+				name, fullTimestamp(since))
 		}
 		return fmt.Sprintf("**%s** is frozen. Drawing is unavailable until it is unfrozen.", name)
 	case lock.IsReady():
