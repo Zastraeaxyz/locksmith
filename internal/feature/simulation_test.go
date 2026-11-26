@@ -102,6 +102,8 @@ func TestSimulationFailureReason(t *testing.T) {
 		{err: &cs.APIError{HTTPStatus: 403}, want: "rejected"},
 		{err: cs.ErrLockNotFound, want: "not found"},
 		{err: cs.ErrNotKeyholder, want: "not keyholder"},
+		{err: cs.ErrSimulationDisabled, want: "disabled"},
+		{err: &cs.APIError{Reason: "hiddenlocksimulationnotshowntolockee"}, want: "disabled"},
 		{err: cs.ErrNotAllowed, want: "not allowed"},
 		{err: cs.ErrInvalidResponse, want: "unreachable"},
 	}
@@ -109,5 +111,17 @@ func TestSimulationFailureReason(t *testing.T) {
 		if got := simulationFailureReason(tc.err); got != tc.want {
 			t.Errorf("simulationFailureReason(%v) = %q, want %q", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestSimulationFailureText(t *testing.T) {
+	if got := simulationFailureText(cs.ErrSimulationDisabled); !strings.Contains(got, "keyholder") {
+		t.Fatalf("disabled text = %q", got)
+	}
+	if got := simulationFailureText(&cs.APIError{Reason: "hiddenlocksimulationnotshowntolockee"}); !strings.Contains(got, "keyholder") {
+		t.Fatalf("reason text = %q", got)
+	}
+	if got := simulationFailureText(cs.ErrNotAllowed); got != "" {
+		t.Fatalf("other error text = %q, want empty", got)
 	}
 }

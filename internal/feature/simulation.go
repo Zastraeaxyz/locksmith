@@ -65,6 +65,9 @@ func (f *Feature) handleSimulationComponent(ctx context.Context, s *discordgo.Se
 			"template_id", templateID.String(),
 			"err", err,
 		)
+		if message := simulationFailureText(err); message != "" {
+			return bot.ReplyEphemeralFollowup(s, i, message)
+		}
 		return bot.ReplyEphemeralFollowup(s, i, f.apiFailure(ctx, userID, err))
 	}
 
@@ -136,6 +139,15 @@ func secondsText(seconds int) string {
 	return cs.FormatDuration(time.Duration(seconds) * time.Second)
 }
 
+// simulationFailureText explains a simulation the keyholder turned off. Other
+// failures fall back to the generic API message.
+func simulationFailureText(err error) string {
+	if errors.Is(err, cs.ErrSimulationDisabled) {
+		return "The keyholder does not want you to simulate this lock."
+	}
+	return ""
+}
+
 // simulationFailureReason buckets a failed simulation for anonymous analytics.
 // The labels stay coarse: no IDs, names, or codes.
 func simulationFailureReason(err error) string {
@@ -146,6 +158,8 @@ func simulationFailureReason(err error) string {
 		return "not found"
 	case errors.Is(err, cs.ErrNotKeyholder):
 		return "not keyholder"
+	case errors.Is(err, cs.ErrSimulationDisabled):
+		return "disabled"
 	case errors.Is(err, cs.ErrNotAllowed):
 		return "not allowed"
 	default:

@@ -26,9 +26,9 @@ const (
 	maxLockCodeDigits = 32
 )
 
-// handleLockLoad parses a share link and opens the private load form. The
-// keyholder passcode is entered in the modal so it never appears in the
-// channel, and the lock code is generated rather than chosen.
+// handleLockLoad parses a share link and shows the lock privately before
+// anything is loaded. The preview carries a Load lock button, so the member
+// can check what the lock expects and dismiss it without starting the form.
 func (f *Feature) handleLockLoad(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, link string) error {
 	userID := bot.UserID(i)
 	if userID == "" {
@@ -40,11 +40,91 @@ func (f *Feature) handleLockLoad(ctx context.Context, s *discordgo.Session, i *d
 		f.track("load failed: bad link")
 		return bot.ReplyEphemeral(s, i, err.Error())
 	}
-	if _, _, err := f.clientFor(ctx, userID); err != nil {
-		f.track("load failed: not logged in")
-		return bot.ReplyEphemeral(s, i, f.apiFailure(ctx, userID, err))
+	if err := bot.DeferEphemeral(s, i); err != nil {
+		return err
 	}
-	return openLoadModal(s, i, templateID)
+
+	client, _, err := f.clientFor(ctx, userID)
+	if err != nil {
+		f.track("load failed: not logged in")
+		return sendEphemeral(s, i, f.apiFailure(ctx, userID, err))
+	}
+
+	template, err := client.Template(ctx, templateID)
+	if err != nil {
+		f.track("load failed: " + loadFailureReason(err))
+		f.log.Info("reading a lock template failed", "user_id", userID, "template_id", templateID.String(), "err", err)
+		return sendEphemeral(s, i, f.loadFailure(ctx, userID, err, nil))
+	}
+	if template == nil {
+		f.track("load failed: not found")
+		return sendEphemeral(s, i, "That lock template no longer exists. Ask your keyholder for a fresh share link.")
+	}
+	if templateDisabled(template) {
+		f.track("load failed: disabled")
+		return sendEphemeral(s, i, "That lock is disabled, so it cannot be loaded. Ask your keyholder to enable it.")
+	}
+
+	return bot.EditMessageAllowed(s, i, "",
+		[]*discordgo.MessageEmbed{loadPreviewEmbed(template, f.baseURL)},
+		loadPreviewButtons(template, f.baseURL),
+		noMentions(),
+	)
+}
+
+// loadPreviewEmbed shows the lock before anything is loaded. It carries the
+// same details as a share post, minus the sharer, because the member already
+// has the link.
+func loadPreviewEmbed(template *cs.Template, baseURL string) *discordgo.MessageEmbed {
+	description := templateDetails(template, "")
+	description += "\n-# Press **Load lock** to start this lock here with draws, reminders, and history. "
+	description += "**Open in ChastiSafe** loads it on the website without the bot."
+
+	return &discordgo.MessageEmbed{
+		Title:       templateName(template),
+		URL:         chastisafeShareURL(baseURL, template.ID),
+		Color:       embedColor,
+		Description: description,
+		Footer:      &discordgo.MessageEmbedFooter{Text: "Template " + template.ID.String()},
+	}
+}
+
+// loadPreviewButtons offers the load form, a simulation for card templates,
+// and the website link. The Simulation button stays visible even when the
+// keyholder has turned simulation off, so pressing it can explain why.
+func loadPreviewButtons(template *cs.Template, baseURL string) []discordgo.MessageComponent {
+	if template == nil {
+		return nil
+	}
+
+	buttons := []discordgo.MessageComponent{
+		discordgo.Button{
+			CustomID: loadNamespace + ":start:" + template.ID.String(),
+			Label:    "Load lock",
+			Style:    discordgo.PrimaryButton,
+		},
+	}
+	if template.IsCardLock() {
+		buttons = append(buttons, discordgo.Button{
+			CustomID: simulationNamespace + ":" + template.ID.String(),
+			Label:    "Simulation",
+			Style:    discordgo.SecondaryButton,
+		})
+	}
+	buttons = append(buttons, chastisafeLinkButton(baseURL, template.ID))
+
+	return []discordgo.MessageComponent{
+		discordgo.ActionsRow{Components: buttons},
+	}
+}
+
+// handleLoadComponent opens the passcode form from the private preview.
+func (f *Feature) handleLoadComponent(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+	parts := strings.Split(i.MessageComponentData().CustomID, ":")
+	if len(parts) != 3 || parts[1] != "start" || strings.TrimSpace(parts[2]) == "" {
+		return bot.ReplyEphemeral(s, i, "This button is out of date. Run `/lock load` again.")
+	}
+	return openLoadModal(s, i, cs.ID(parts[2]))
 }
 
 // openLoadModal asks for an optional keyholder passcode. The lock code is
@@ -117,7 +197,7 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 		f.log.Info("loading a lock template failed", "user_id", userID, "template_id", templateID.String(), "err", err)
 		return sendEphemeral(s, i, f.loadFailure(ctx, userID, err, nil))
 	}
-	if strings.EqualFold(strings.TrimSpace(template.Status), "disabled") {
+	if templateDisabled(template) {
 		f.track("load failed: disabled")
 		return sendEphemeral(s, i, "That lock is disabled, so it cannot be loaded. Ask your keyholder to enable it.")
 	}

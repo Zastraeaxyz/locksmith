@@ -178,6 +178,110 @@ func TestLoadModalHasOnlyPasscode(t *testing.T) {
 	}
 }
 
+func TestLoadPreviewEmbed(t *testing.T) {
+	template := &cs.Template{
+		ID:              "tpl-1",
+		LockName:        "Test Lock",
+		Keyholder:       "Keyholder",
+		KeyholderID:     "kh",
+		LockType:        "CARDLOCK",
+		Cards:           []cs.TemplateCard{{Name: cs.CardGreen, Min: 2, Max: 4}},
+		RequiredGreens:  2,
+		Regularity:      60,
+		CheckInPeriod:   1440,
+		AllowedPurposes: cs.PurposeMaskChastity | cs.PurposeMaskTest,
+		Passcode:        "secret-passcode",
+		Description:     "A lock for testing.",
+	}
+	embed := loadPreviewEmbed(template, "https://chastisafe.com/api-v1")
+	if embed.Title != "Test Lock" {
+		t.Fatalf("title = %q", embed.Title)
+	}
+	if embed.URL != "https://chastisafe.com/#l/tpl-1" {
+		t.Fatalf("url = %q", embed.URL)
+	}
+	for _, want := range []string{
+		"Keyholder: **Keyholder**",
+		"Cards: green 2-4",
+		"Greens needed: 2",
+		"Draws: every 1 hour",
+		"Check-ins: every 1 day",
+		"Passcode: required",
+		"Load lock",
+		"Open in ChastiSafe",
+		"A lock for testing.",
+	} {
+		if !strings.Contains(embed.Description, want) {
+			t.Errorf("description missing %q:\n%s", want, embed.Description)
+		}
+	}
+	if strings.Contains(embed.Description, "secret-passcode") {
+		t.Fatal("preview leaked the passcode")
+	}
+	if embed.Footer == nil || embed.Footer.Text != "Template tpl-1" {
+		t.Fatalf("footer = %+v", embed.Footer)
+	}
+	if len([]rune(embed.Description)) > 4096 {
+		t.Fatalf("description too long: %d", len([]rune(embed.Description)))
+	}
+}
+
+func TestLoadPreviewButtons(t *testing.T) {
+	card := &cs.Template{ID: "tpl-1", LockType: "CARDLOCK"}
+	components := loadPreviewButtons(card, "https://chastisafe.com/api-v1")
+	if len(components) != 1 {
+		t.Fatalf("components = %d, want 1 row", len(components))
+	}
+	row, ok := components[0].(discordgo.ActionsRow)
+	if !ok {
+		t.Fatalf("component type = %T", components[0])
+	}
+	if len(row.Components) != 3 {
+		t.Fatalf("buttons = %d, want 3", len(row.Components))
+	}
+
+	load, ok := row.Components[0].(discordgo.Button)
+	if !ok {
+		t.Fatalf("first button type = %T", row.Components[0])
+	}
+	if load.CustomID != "load:start:tpl-1" || load.Label != "Load lock" || load.Style != discordgo.PrimaryButton {
+		t.Fatalf("load button = %+v", load)
+	}
+
+	simulation, ok := row.Components[1].(discordgo.Button)
+	if !ok {
+		t.Fatalf("second button type = %T", row.Components[1])
+	}
+	if simulation.CustomID != "simulation:tpl-1" || simulation.Style != discordgo.SecondaryButton {
+		t.Fatalf("simulation button = %+v", simulation)
+	}
+
+	open, ok := row.Components[2].(discordgo.Button)
+	if !ok {
+		t.Fatalf("third button type = %T", row.Components[2])
+	}
+	if open.Style != discordgo.LinkButton || open.URL != "https://chastisafe.com/#l/tpl-1" {
+		t.Fatalf("open button = %+v", open)
+	}
+
+	timer := &cs.Template{ID: "tpl-2", LockType: "TIMEDLOCK"}
+	components = loadPreviewButtons(timer, "https://chastisafe.com/api-v1")
+	row, ok = components[0].(discordgo.ActionsRow)
+	if !ok {
+		t.Fatalf("timer component type = %T", components[0])
+	}
+	if len(row.Components) != 2 {
+		t.Fatalf("timer buttons = %d, want 2", len(row.Components))
+	}
+	if _, ok := row.Components[1].(discordgo.Button); !ok {
+		t.Fatalf("timer second button type = %T", row.Components[1])
+	}
+
+	if got := loadPreviewButtons(nil, "https://chastisafe.com/api-v1"); got != nil {
+		t.Fatalf("nil template = %v, want no components", got)
+	}
+}
+
 func TestDefaultPurpose(t *testing.T) {
 	if got := defaultPurpose(nil); got != cs.PurposeChastity {
 		t.Errorf("nil = %q, want CHASTITY", got)

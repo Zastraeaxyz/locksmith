@@ -38,7 +38,7 @@ user-install button, and a link to this repository.
 | `/login` | Opens a private modal and stores your ChastiSafe developer code, encrypted |
 | `/logout` | Removes your saved code and draw subscription |
 | `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
-| `/lock load link:<url>` | Starts a lock from a ChastiSafe share link; generates the device code from your ChastiSafe code settings and asks privately for the keyholder passcode |
+| `/lock load link:<url>` | Shows a lock privately before loading it, with Load lock, Simulation (card locks), and Open in ChastiSafe buttons; starts it on Load lock and asks privately for the keyholder passcode |
 | `/lock draw` | Opens a public draw board with Draw and Stop while the lock runs, and Open, Put green back, Reset, and Let keyholder decide when it is ready to unlock; only you and your keyholder can press them |
 | `/lock open [ref]` | Opens a ready lock and reveals the device code; the reply is private in servers and a normal message in DMs |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
@@ -83,9 +83,13 @@ has two buttons:
   lockee can load the lock without the bot.
 
 A lockee can also run `/lock load link:<share link>` with a ChastiSafe share
-link or a bare template ID. The form asks only for the keyholder passcode when
-the template has one. The reply shows the generated device code, so the lockee
-can set the device and then forget it.
+link or a bare template ID. The reply is private and shows the same details as
+the share post, so the lockee can check the lock and dismiss it without starting
+anything. **Load lock** opens the passcode form, **Open in ChastiSafe** loads on
+the website, and card locks also get **Simulation**. Nothing is loaded until
+the lockee presses **Load lock**. The form asks only for the keyholder passcode
+when the template has one, and the reply shows the generated device code, so the
+lockee can set the device and then forget it.
 
 ## Opening a lock
 
@@ -102,11 +106,13 @@ never includes codes.
 Templates that use a keyholder passcode are supported: enter the passcode in the
 form. The share post marks it as required so the lockee knows to ask for it.
 
-Card templates also get a **Simulation** button, on the share post and on the
-private reply after a load. It asks ChastiSafe for the same estimate the website
-shows: average duration and cards drawn, the ranges, the draw interval, and how
-many runs the estimate used. The reply is private to whoever presses the button,
-so a public share post stays clean.
+Card templates also get a **Simulation** button, on the share post, on the
+private preview from `/lock load`, and on the private reply after a load. It
+asks ChastiSafe for the same estimate the website shows: average duration and
+cards drawn, the ranges, the draw interval, and how many runs the estimate used.
+The reply is private to whoever presses the button, so a public share post stays
+clean. The button stays visible when the keyholder has turned simulation off;
+pressing it explains that the keyholder does not want the lock simulated.
 
 ## Notifications
 

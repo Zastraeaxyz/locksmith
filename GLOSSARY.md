@@ -84,7 +84,9 @@ _Avoid_: Paused, locked out
 **Simulation**:
 ChastiSafe's statistical preview of a card template: average and range for
 duration and cards drawn, based on repeated runs. Locksmith shows it privately
-to the member who presses the Simulation button.
+to the member who presses the Simulation button. A keyholder can hide it from
+lockees; the button stays visible and explains that the keyholder does not want
+the lock simulated.
 _Avoid_: Estimate, prediction, forecast
 
 ### Secrets

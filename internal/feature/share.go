@@ -126,7 +126,7 @@ func shareableTemplate(template *cs.Template, chastisafeID string) error {
 	if template == nil {
 		return errors.New("Lock template not found.")
 	}
-	if strings.EqualFold(strings.TrimSpace(template.Status), "disabled") {
+	if templateDisabled(template) {
 		return fmt.Errorf("**%s** is disabled. Enable it on chastisafe.com before sharing it.", templateName(template))
 	}
 	owner := template.KeyholderID.String()
@@ -134,6 +134,11 @@ func shareableTemplate(template *cs.Template, chastisafeID string) error {
 		return fmt.Errorf("**%s** belongs to another keyholder, so you cannot share it.", templateName(template))
 	}
 	return nil
+}
+
+// templateDisabled reports whether a keyholder turned the template off.
+func templateDisabled(template *cs.Template) bool {
+	return template != nil && strings.EqualFold(strings.TrimSpace(template.Status), "disabled")
 }
 
 func templateName(template *cs.Template) string {
@@ -146,12 +151,9 @@ func templateName(template *cs.Template) string {
 	return "Untitled lock"
 }
 
-// shareEmbed summarises the template without exposing private settings or its
-// passcode.
-func shareEmbed(template *cs.Template, baseURL, sharer string) *discordgo.MessageEmbed {
-	name := templateName(template)
-	link := chastisafeShareURL(baseURL, template.ID)
-
+// templateDetails lists what a lockee should know before loading, without
+// exposing private settings or the passcode value itself.
+func templateDetails(template *cs.Template, sharer string) string {
 	var b strings.Builder
 	if keyholder := strings.TrimSpace(template.Keyholder); keyholder != "" && !strings.EqualFold(keyholder, "<self>") {
 		fmt.Fprintf(&b, "Keyholder: **%s**\n", keyholder)
@@ -193,15 +195,21 @@ func shareEmbed(template *cs.Template, baseURL, sharer string) *discordgo.Messag
 		b.WriteString(clip(description, 700))
 		b.WriteString("\n")
 	}
+	return b.String()
+}
 
-	b.WriteString("\n-# **Load with Locksmith** starts this lock here with draws, reminders, and history. ")
-	b.WriteString("**Open in ChastiSafe** loads it on the website without the bot.")
+// shareEmbed summarises the template without exposing private settings or its
+// passcode.
+func shareEmbed(template *cs.Template, baseURL, sharer string) *discordgo.MessageEmbed {
+	description := templateDetails(template, sharer)
+	description += "\n-# **Load with Locksmith** starts this lock here with draws, reminders, and history. "
+	description += "**Open in ChastiSafe** loads it on the website without the bot."
 
 	embed := &discordgo.MessageEmbed{
-		Title:       name,
-		URL:         link,
+		Title:       templateName(template),
+		URL:         chastisafeShareURL(baseURL, template.ID),
 		Color:       embedColor,
-		Description: b.String(),
+		Description: description,
 	}
 	if sharer != "" {
 		embed.Footer = &discordgo.MessageEmbedFooter{
@@ -256,14 +264,19 @@ func shareButtons(template *cs.Template, baseURL string) []discordgo.MessageComp
 			Style:    discordgo.SecondaryButton,
 		})
 	}
-	buttons = append(buttons, discordgo.Button{
-		Label: "Open in ChastiSafe",
-		Style: discordgo.LinkButton,
-		URL:   chastisafeShareURL(baseURL, template.ID),
-	})
+	buttons = append(buttons, chastisafeLinkButton(baseURL, template.ID))
 
 	return []discordgo.MessageComponent{
 		discordgo.ActionsRow{Components: buttons},
+	}
+}
+
+// chastisafeLinkButton opens the template on the website without the bot.
+func chastisafeLinkButton(baseURL string, templateID cs.ID) discordgo.Button {
+	return discordgo.Button{
+		Label: "Open in ChastiSafe",
+		Style: discordgo.LinkButton,
+		URL:   chastisafeShareURL(baseURL, templateID),
 	}
 }
 

@@ -2,6 +2,16 @@
 
 Notable changes to Locksmith, newest first.
 
+## 2026-11-26
+
+### Added
+
+- `/lock load` shows the lock privately before loading it, with **Load lock**, **Simulation** (card locks), and **Open in ChastiSafe** buttons. Nothing is loaded until **Load lock** is pressed.
+
+### Changed
+
+- The **Simulation** button stays visible when the keyholder has turned simulation off. Pressing it explains that the keyholder does not want the lock simulated.
+
 ## 2026-11-25
 
 ### Changed
