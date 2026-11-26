@@ -75,6 +75,16 @@ func (f *Feature) handleLockAutocomplete(ctx context.Context, s *discordgo.Sessi
 			f.loadedCache.put(userID, locks)
 		}
 		return bot.Autocomplete(s, i, buildRefChoices(ref, openCandidates(locks, cred.ChastiSafeID)))
+	case "deck":
+		locks, ok := f.loadedCache.get(userID)
+		if !ok {
+			locks, err = client.Loaded(ctx)
+			if err != nil {
+				return bot.Autocomplete(s, i, nil)
+			}
+			f.loadedCache.put(userID, locks)
+		}
+		return bot.Autocomplete(s, i, buildRefChoices(ref, deckCandidates(locks, cred.ChastiSafeID)))
 	case "log":
 		locks, hasLocks := f.loadedCache.get(userID)
 		if !hasLocks {
@@ -211,6 +221,21 @@ func openCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
 	for idx := range own {
 		lock := &own[idx]
 		if !lock.IsReady() || lock.IsFrozen() {
+			continue
+		}
+		out = append(out, refChoice{id: lock.ID, name: lockName(lock)})
+	}
+	return out
+}
+
+// deckCandidates lists the caller's active card locks, newest first.
+func deckCandidates(locks []cs.LoadedLock, chastisafeID string) []refChoice {
+	own := newestRunningFirst(ownLocks(locks, chastisafeID))
+
+	out := make([]refChoice, 0, len(own))
+	for idx := range own {
+		lock := &own[idx]
+		if !lock.IsCardLock() {
 			continue
 		}
 		out = append(out, refChoice{id: lock.ID, name: lockName(lock)})

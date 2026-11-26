@@ -134,6 +134,26 @@ func lockCommand() *discordgo.ApplicationCommand {
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "deck",
+				Description: "Show the cards left in a card lock's deck",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick an active card lock",
+						Required:     false,
+						Autocomplete: true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "public",
+						Description: "Post the reply publicly instead of privately",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "log",
 				Description: "Show the draw log for a lock",
 				Options: []*discordgo.ApplicationCommandOption{
@@ -330,6 +350,8 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 			enabled = sub.Options[0].BoolValue()
 		}
 		return f.handleLockNotify(ctx, s, i, enabled)
+	case "deck":
+		return f.handleLockDeck(ctx, s, i, sub.Options)
 	case "log":
 		return f.handleLockLog(ctx, s, i, sub.Options)
 	default:

@@ -150,7 +150,7 @@ func TestRefOptionsAutocomplete(t *testing.T) {
 		subcommands[option.Name] = option
 	}
 
-	for name, want := range map[string]bool{"checkin": true, "share": true, "log": true} {
+	for name, want := range map[string]bool{"checkin": true, "share": true, "log": true, "deck": true} {
 		sub := subcommands[name]
 		if sub == nil {
 			t.Fatalf("missing /lock %s", name)
@@ -167,6 +167,21 @@ func TestRefOptionsAutocomplete(t *testing.T) {
 		if ref.Autocomplete != want {
 			t.Errorf("/lock %s ref.Autocomplete = %v, want %v", name, ref.Autocomplete, want)
 		}
+	}
+}
+
+func TestDeckCandidates(t *testing.T) {
+	now := selectionTestNow()
+	locks := []cs.LoadedLock{
+		{ID: "old", LockName: "Old", LockeeID: "me", Type: "card", LoadTime: cs.Time{Time: now.Add(-2 * time.Hour)}},
+		{ID: "new", LockName: "New", LockeeID: "me", Type: "card", LoadTime: cs.Time{Time: now}},
+		{ID: "timer", LockName: "Timer", LockeeID: "me", Type: "timer", LoadTime: cs.Time{Time: now.Add(-time.Hour)}},
+		{ID: "theirs", LockName: "Theirs", LockeeID: "other", Type: "card", LoadTime: cs.Time{Time: now}},
+	}
+
+	got := refChoiceIDs(deckCandidates(locks, "me"))
+	if want := "new,old"; got != want {
+		t.Fatalf("ids = %q, want %q", got, want)
 	}
 }
 

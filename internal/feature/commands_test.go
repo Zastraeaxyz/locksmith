@@ -39,6 +39,7 @@ func TestLoginWelcomeText(t *testing.T) {
 		"`/lock share ref:<template>`",
 		"`/lock notify [enabled]`",
 		"`/lock log [full] [ref]`",
+		"`/lock deck [ref]`",
 		"`/history`",
 		"`/docs`",
 		"`/help`",

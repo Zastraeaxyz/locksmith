@@ -92,7 +92,7 @@ func guideText() string {
 	b.WriteString("• `/lock open [ref]` opens a ready lock and shows its device code. The reply is private in servers and normal in DMs.\n")
 	b.WriteString("• `/lock rate` rates your latest completed lock.\n")
 	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
-	b.WriteString("• `/lock log [full] [ref]` shows the last 10 draws, or the full log.\n")
+	b.WriteString("• `/lock log [full] [ref]` and `/lock deck [ref]` show draws and the cards left.\n")
 	b.WriteString("• `/lock share ref:<template>` lets keyholders post a lock with load buttons.\n")
 	b.WriteString("• `/lock notify [enabled]` turns DM reminders on or off for locks loaded in the app. `/lock load` locks are watched automatically.\n")
 	b.WriteString("• `/history` lists your completed locks. A private reply includes their codes.\n")

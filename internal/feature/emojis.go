@@ -16,9 +16,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// applicationEmojiBlank is the card-back icon. Nothing renders it yet, but the
-// upload tool registers it so it is available as :blank: when a surface needs
-// an unrevealed card.
+// applicationEmojiBlank is the card-back icon. /lock deck uses it for a card
+// whose face is hidden or unknown.
 const applicationEmojiBlank = "blank"
 
 // applicationEmojiIDs holds the current application emoji IDs by name.
