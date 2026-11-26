@@ -172,9 +172,9 @@ func TestLogOutputCondensesDraws(t *testing.T) {
 
 	out := logOutput("", view, "")
 	for _, want := range []string{
-		"<:green:1574875078255185957>",
-		":key:<:double:1574875037104742581>",
-		":key:<:dice:1574875035749982268>4",
+		cardEmojiMarkup(cs.CardGreen),
+		":key:" + cardEmojiMarkup(cs.CardDoubleUp),
+		":key:" + cardEmojiMarkup(cs.CardDice) + "4",
 		"<t:",
 	} {
 		if !strings.Contains(out, want) {
@@ -220,7 +220,7 @@ func TestLogOutputShowsEarlierDraws(t *testing.T) {
 	for _, want := range []string{
 		"No draws in the last 5 minutes.",
 		"**Earlier draws**",
-		"<:green:1574875078255185957>",
+		cardEmojiMarkup(cs.CardGreen),
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log output missing %q:\n%s", want, out)

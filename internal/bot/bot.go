@@ -26,6 +26,11 @@ type ComponentHandler func(ctx context.Context, s *discordgo.Session, i *discord
 // AutocompleteHandler answers an autocomplete interaction.
 type AutocompleteHandler func(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error
 
+// ReadyHandler runs after the gateway reports ready. A returned error is fatal
+// to the process, so a handler must only fail on a problem the bot cannot run
+// without.
+type ReadyHandler func(ctx context.Context, s *discordgo.Session, r *discordgo.Ready) error
+
 // Tracker records anonymous usage events.
 type Tracker interface {
 	Track(name string, data map[string]any)
@@ -44,6 +49,7 @@ type Bot struct {
 	modalHandlers        map[string]ModalHandler
 	componentHandlers    map[string]ComponentHandler
 	autocompleteHandlers map[string]AutocompleteHandler
+	readyHandlers        []ReadyHandler
 	tracker              Tracker
 	synced               bool
 }
@@ -113,6 +119,15 @@ func (b *Bot) AddAutocomplete(commandName string, handler AutocompleteHandler) {
 	b.autocompleteHandlers[commandName] = handler
 }
 
+// AddReadyHook registers a handler that runs on every READY event. An error
+// from a hook crashes the process, because the bot cannot run without the data
+// the hook loads.
+func (b *Bot) AddReadyHook(handler ReadyHandler) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.readyHandlers = append(b.readyHandlers, handler)
+}
+
 // SetTracker records anonymous usage events for every handled interaction.
 // A nil tracker disables tracking.
 func (b *Bot) SetTracker(t Tracker) {
@@ -158,6 +173,19 @@ func (b *Bot) handleReady(s *discordgo.Session, r *discordgo.Ready) {
 
 	b.Log.Info("discord ready", "user", r.User.Username, "guilds", len(r.Guilds))
 
+	b.mu.RLock()
+	readyHandlers := append([]ReadyHandler(nil), b.readyHandlers...)
+	b.mu.RUnlock()
+	for _, handler := range readyHandlers {
+		if err := handler(ctx, s, r); err != nil {
+			// A ready handler loads data the bot cannot run without, such as
+			// the application emoji IDs. Crash instead of serving broken
+			// replies.
+			b.Log.Error("ready handler failed", "err", err)
+			panic(err)
+		}
+	}
+
 	if b.needsSync() {
 		if err := b.syncCommands(s); err != nil {
 			// Leaving the flag unset retries on the next READY event.
@@ -168,7 +196,6 @@ func (b *Bot) handleReady(s *discordgo.Session, r *discordgo.Ready) {
 			b.mu.Unlock()
 		}
 	}
-	_ = ctx
 }
 
 func (b *Bot) needsSync() bool {

@@ -42,9 +42,9 @@ func TestRenderDrawLog(t *testing.T) {
 		{card: cs.CardDice, dice: 4},
 	})
 	for _, want := range []string{
-		"1. <:green:1574875078255185957> Green card",
-		"2. <:red:1574875081254113453> Red card · keyholder",
-		"<:dice:1574875035749982268> Dice card (4)",
+		"1. " + cardEmojiMarkup(cs.CardGreen) + " Green card",
+		"2. " + cardEmojiMarkup(cs.CardRed) + " Red card · keyholder",
+		cardEmojiMarkup(cs.CardDice) + " Dice card (4)",
 	} {
 		if !strings.Contains(log, want) {
 			t.Errorf("log missing %q:\n%s", want, log)
@@ -108,7 +108,7 @@ func TestDrawEmbedLiveTotalsCountdown(t *testing.T) {
 	session.add(drawEntry{card: cs.CardRed})
 
 	embed := session.embed(lock, "")
-	want := "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, 3 remaining"
+	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, 3 remaining"
 	if !strings.Contains(embed.Description, want) {
 		t.Errorf("description missing %q:\n%s", want, embed.Description)
 	}
@@ -119,7 +119,7 @@ func TestDrawEmbedLiveTotalsCountdown(t *testing.T) {
 	session.add(drawEntry{card: cs.CardGreen})
 
 	embed = session.embed(lock, "")
-	want = "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 1 green, 2 remaining"
+	want = "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, 2 remaining"
 	if !strings.Contains(embed.Description, want) {
 		t.Errorf("description missing %q:\n%s", want, embed.Description)
 	}
@@ -141,12 +141,12 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 
 	embed := session.embed(lock, "")
 	for _, want := range []string{
-		"1. <:yellow_plus3:1574875092079345705> Yellow +3",
-		"2. <:red:1574875081254113453> Red card",
-		"3. <:double:1574875037104742581> Double up card",
+		"1. " + cardEmojiMarkup(cs.CardYellowP3) + " Yellow +3",
+		"2. " + cardEmojiMarkup(cs.CardRed) + " Red card",
+		"3. " + cardEmojiMarkup(cs.CardDoubleUp) + " Double up card",
 		"3 used · 0 left",
 		"Next draw <t:",
-		"Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 0 green, <:yellow_unknown:1574875097389465731> 1 yellow, <:double:1574875037104742581> 1 double up, 0 remaining",
+		"Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, " + cardEmojiMarkup(cs.CardYellow) + " 1 yellow, " + cardEmojiMarkup(cs.CardDoubleUp) + " 1 double up, 0 remaining",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
@@ -159,7 +159,7 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 
 func TestTotalsLineOmitsMissingCards(t *testing.T) {
 	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}}, 0, false)
-	want := "Totals: <:red:1574875081254113453> 0 red, <:green:1574875078255185957> 2 green"
+	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 0 red, " + cardEmojiMarkup(cs.CardGreen) + " 2 green"
 	if got != want {
 		t.Fatalf("totalsLine = %q, want %q", got, want)
 	}
@@ -167,18 +167,23 @@ func TestTotalsLineOmitsMissingCards(t *testing.T) {
 
 func TestTotalsLineShowsRemaining(t *testing.T) {
 	got := totalsLine([]drawEntry{{card: cs.CardRed}, {card: cs.CardGreen}}, 5, true)
-	want := "Totals: <:red:1574875081254113453> 1 red, <:green:1574875078255185957> 1 green, 5 remaining"
+	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, 5 remaining"
 	if got != want {
 		t.Fatalf("totalsLine = %q, want %q", got, want)
 	}
 }
 
 func TestCardEmojiMarkup(t *testing.T) {
-	for card, emoji := range cardEmojiIDs {
+	for card, name := range cardEmojiNames {
 		if !card.Valid() {
-			t.Errorf("cardEmojiIDs has invalid card %q", card)
+			t.Errorf("cardEmojiNames has invalid card %q", card)
 		}
-		want := "<:" + emoji.name + ":" + emoji.id + ">"
+		id, ok := applicationEmojiID(name)
+		if !ok {
+			t.Errorf("card %q emoji %q has no ID", card, name)
+			continue
+		}
+		want := "<:" + name + ":" + id + ">"
 		if got := cardEmojiMarkup(card); got != want {
 			t.Errorf("cardEmojiMarkup(%q) = %q, want %q", card, got, want)
 		}
@@ -190,7 +195,7 @@ func TestCardEmojiMarkup(t *testing.T) {
 
 	var b strings.Builder
 	writeCardEmoji(&b, cs.CardGreen)
-	if got, want := b.String(), "<:green:1574875078255185957> "; got != want {
+	if got, want := b.String(), cardEmojiMarkup(cs.CardGreen)+" "; got != want {
 		t.Fatalf("writeCardEmoji = %q, want %q", got, want)
 	}
 }

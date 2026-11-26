@@ -91,6 +91,7 @@ func (f *Feature) Register(b *bot.Bot) {
 		return
 	}
 	f.bot = b
+	b.AddReadyHook(f.loadApplicationEmojis)
 	b.AddCommand(loginCommand(), f.handleLoginCommand)
 	b.AddCommand(logoutCommand(), f.handleLogoutCommand)
 	b.AddCommand(lockCommand(), f.handleLockCommand)
