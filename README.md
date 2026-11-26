@@ -210,8 +210,12 @@ document as plain markdown.
 | `UMAMI_ENDPOINT` | no | | Umami base URL, for example `https://umami.example.com` |
 
 When `STORE_KEY` is empty the bot creates `<database dir>/locksmith.key` with
-mode 0600. Back up that file with the database; losing it makes stored codes
+mode 0600. Back up that key with the database; losing it makes stored codes
 unreadable.
+
+Production on Railway keeps the key in the `STORE_KEY` service variable, so the
+volume holds only `locksmith.db`. Keep a copy of the key outside Railway:
+losing the variable makes every stored developer code unreadable.
 
 ## Analytics
 
