@@ -172,3 +172,11 @@ _Avoid_: Lock log, archive
 Member-authored markdown shown by `/profile`, `/rules`, or `/kinks`. A member has
 at most one of each kind.
 _Avoid_: Page, bio, notes
+
+### Time
+
+**Exact time**:
+A precise elapsed duration written out in hours and minutes, for example
+`2hrs 53min` or `1d 15hrs 56min`, instead of a rounded relative time such as
+"2 hours ago".
+_Avoid_: Relative time, timestamp

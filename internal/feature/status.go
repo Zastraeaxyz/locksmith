@@ -206,30 +206,29 @@ func lockStatusColor(lock *cs.LoadedLock) int {
 	}
 }
 
-// elapsedLabel renders a past duration as a compact exact count, for example
-// 1d 15hr 56m, instead of a rounded relative timestamp.
+// elapsedLabel renders a past duration as an exact time, for example
+// 2hrs 53min or 1d 15hrs 56min, instead of a rounded relative timestamp.
 func elapsedLabel(d time.Duration) string {
 	minutes := int64(d / time.Minute)
 	if minutes < 1 {
-		return "just now"
+		return "less than a minute"
 	}
 
 	days := minutes / (24 * 60)
 	hours := (minutes % (24 * 60)) / 60
 	mins := minutes % 60
 
-	switch {
-	case days > 0 && mins > 0:
-		return fmt.Sprintf("%dd %dhr %dm", days, hours, mins)
-	case days > 0:
-		return fmt.Sprintf("%dd %dhr", days, hours)
-	case hours > 0 && mins > 0:
-		return fmt.Sprintf("%dhr %dm", hours, mins)
-	case hours > 0:
-		return fmt.Sprintf("%dhr", hours)
-	default:
-		return fmt.Sprintf("%dm", mins)
+	parts := make([]string, 0, 3)
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
 	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dhr%s", hours, plural(int(hours))))
+	}
+	if mins > 0 {
+		parts = append(parts, fmt.Sprintf("%dmin", mins))
+	}
+	return strings.Join(parts, " ")
 }
 
 func statusCardsLine(lock *cs.LoadedLock) string {

@@ -138,7 +138,7 @@ func TestStatusFrozenSince(t *testing.T) {
 		now,
 	))
 
-	if !strings.Contains(text, ":ice_cube: Frozen for 2hr") {
+	if !strings.Contains(text, ":ice_cube: Frozen for 2hrs") {
 		t.Errorf("status missing frozen duration:\n%s", text)
 	}
 	if strings.Contains(text, ":ice_cube: Frozen for <t:") {
@@ -156,13 +156,13 @@ func TestStatusFreezeMinimum(t *testing.T) {
 	lock.FrozenByCard = true
 
 	text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if !strings.Contains(text, ":hourglass: Minimum freeze 2hr (2x the 1hr draw interval)") {
+	if !strings.Contains(text, ":hourglass: Minimum freeze 2hrs (2x the 1hr draw interval)") {
 		t.Errorf("status missing freeze minimum:\n%s", text)
 	}
 
 	lock.Regularity = 120
 	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if !strings.Contains(text, ":hourglass: Minimum freeze 4hr (2x the 2hr draw interval)") {
+	if !strings.Contains(text, ":hourglass: Minimum freeze 4hrs (2x the 2hrs draw interval)") {
 		t.Errorf("status missing scaled freeze minimum:\n%s", text)
 	}
 
@@ -199,11 +199,11 @@ func TestStatusLoadedElapsed(t *testing.T) {
 		ago  time.Duration
 		want string
 	}{
-		{name: "days hours minutes", ago: 39*time.Hour + 56*time.Minute, want: "locked for 1d 15hr 56m"},
-		{name: "hours minutes", ago: 5*time.Hour + 12*time.Minute, want: "locked for 5hr 12m"},
-		{name: "whole hours", ago: 3 * time.Hour, want: "locked for 3hr"},
-		{name: "minutes", ago: 42 * time.Minute, want: "locked for 42m"},
-		{name: "less than a minute", ago: 30 * time.Second, want: "locked for just now"},
+		{name: "days hours minutes", ago: 39*time.Hour + 56*time.Minute, want: "locked for 1d 15hrs 56min"},
+		{name: "hours minutes", ago: 5*time.Hour + 12*time.Minute, want: "locked for 5hrs 12min"},
+		{name: "whole hours", ago: 3 * time.Hour, want: "locked for 3hrs"},
+		{name: "minutes", ago: 42 * time.Minute, want: "locked for 42min"},
+		{name: "less than a minute", ago: 30 * time.Second, want: "locked for less than a minute"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
