@@ -279,6 +279,28 @@ cp .env.example .env   # fill in DISCORD_TOKEN
 go run .
 ```
 
+### Application emoji
+
+Card icons ship in
+[`chastisafe-go`](https://github.com/zastraeaxyz/chastisafe-go) under
+`assets/cards/png`. Upload them to the Discord application instead of adding
+emoji by hand:
+
+```sh
+mise run emojis            # upload missing icons
+mise run emojis --dry-run  # show what would change
+mise run emojis --replace  # recreate changed icons (new IDs)
+mise run emojis --prune    # delete application emoji without an asset
+```
+
+The command uses `DISCORD_TOKEN`, scales each icon to 128x128, and skips names
+that already exist. Discord cannot change an existing emoji's image, so
+`--replace` deletes and recreates it.
+
+Locksmith resolves emoji IDs from the application on every READY event, so
+nothing needs to be committed after an upload. If an emoji the bot needs is
+missing, startup fails with the names to upload.
+
 ## Deploy
 
 The bot deploys to the `locksmith` service in the Railway `zxyz` project from

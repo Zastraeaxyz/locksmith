@@ -4,3 +4,7 @@ run = '''
 railway variable set "BUILD_VERSION=$(git rev-parse --short HEAD) $(git log -1 --pretty=%s)" --skip-deploys
 railway up -m "$(git log -1 --pretty=%s)"
 '''
+
+[tasks.emojis]
+description = "Upload the ChastiSafe card icons as application emoji"
+run = "go run ./cmd/emojis"
