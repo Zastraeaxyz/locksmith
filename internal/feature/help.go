@@ -27,15 +27,21 @@ func helpCommand() *discordgo.ApplicationCommand {
 
 // handleHelpCommand posts the guide with the install buttons.
 func (f *Feature) handleHelpCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	clientID := ""
-	if s != nil && s.State != nil && s.State.User != nil {
-		clientID = s.State.User.ID
-	}
+	clientID := sessionClientID(s)
 	return bot.ReplyEmbed(s, i,
 		[]*discordgo.MessageEmbed{helpEmbed(clientID)},
 		helpButtons(clientID),
 		false,
 	)
+}
+
+// sessionClientID reports the application ID when the session has learned it.
+// Widgets that build links fall back to defaultClientID when it is empty.
+func sessionClientID(s *discordgo.Session) string {
+	if s != nil && s.State != nil && s.State.User != nil {
+		return s.State.User.ID
+	}
+	return ""
 }
 
 // userInstallURL is Discord's User Install link, the recommended way to add
@@ -81,16 +87,17 @@ func guideText() string {
 	var b strings.Builder
 	b.WriteString("**Commands**\n")
 	b.WriteString("• `/lock status` shows your active locks, draws left, timers, and next check-in.\n")
-	b.WriteString("• `/lock load link:<share link>` starts a lock a keyholder shared with you. I generate the device code, so you cannot pick one you would remember. Set your device to the code in my reply, then forget it.\n")
-	b.WriteString("• `/lock draw` opens the draw board. Press **Draw** to pick a card. When the lock is ready, it offers **Open**, **Put green back**, **Reset**, and **Let keyholder decide**.\n")
+	b.WriteString("• `/lock load link:<share link>` starts a shared lock. I generate the device code, so you cannot pick one you would remember. Set your device to the code I reply with, then forget it.\n")
+	b.WriteString("• `/lock draw` opens the board. Press **Draw** to pick a card; when the lock is ready, it offers **Open**, **Put green back**, **Reset**, and **Let keyholder decide**.\n")
 	b.WriteString("• `/lock open [ref]` opens a ready lock and shows its device code. The reply is private in servers and normal in DMs.\n")
 	b.WriteString("• `/lock rate` rates your latest completed lock.\n")
 	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
 	b.WriteString("• `/lock log [full] [ref]` shows the last 10 draws, or the full log.\n")
 	b.WriteString("• `/lock share ref:<template>` lets keyholders post a lock with load buttons.\n")
-	b.WriteString("• `/lock notify [enabled]` turns DM reminders on or off for locks you loaded in the app. `/lock load` locks are watched automatically. Draw reminders have an **Open draw board** button.\n")
+	b.WriteString("• `/lock notify [enabled]` turns DM reminders on or off for locks loaded in the app. `/lock load` locks are watched automatically.\n")
 	b.WriteString("• `/history` lists your completed locks. A private reply includes their codes.\n")
 	b.WriteString("• `/profile`, `/rules`, and `/kinks` view or edit your markdown documents.\n")
+	b.WriteString("• `/docs` explains every command, card, and button in detail.\n")
 	b.WriteString("• `/help` posts this guide and install links; `/changelog` shows changes.\n")
 	b.WriteString("• `/logout` removes your saved code.\n\n")
 

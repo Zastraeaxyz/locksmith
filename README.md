@@ -53,6 +53,7 @@ user-install button, and a link to this repository.
 | `/kinks view [user]` | Shares a member's kinks document |
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
 | `/changelog [public]` | Shows recent Locksmith changes, newest first |
+| `/docs [page]` | Opens the documentation index, or a chosen page such as Cards |
 | `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a
@@ -203,6 +204,30 @@ document as plain markdown.
 - `user` accepts a Discord user ID, a ChastiSafe username such as `zastraea`
   or `zastraea#0`, or the Discord handle saved when the document was last
   edited. ChastiSafe usernames are tried first.
+
+## Documentation in Discord
+
+`/docs` opens a documentation index inside Discord. Each topic is one embed
+with a **Back to docs** button and links to the user install, ChastiSafe, and
+this repository. Navigation edits the message in place, so reading the docs
+does not fill the channel.
+
+The pages are:
+
+| Page | Covers |
+| --- | --- |
+| Getting started | Installing Locksmith, `/login`, loading a first lock, `/lock status`, and `/lock open` |
+| Locks and templates | Templates and loaded locks, sharing, previews, passcodes, generated codes, purposes, and keyholder decisions |
+| Drawing and card locks | Greens, the draw interval, cumulative picks, the draw board buttons, freezes, and simulation |
+| Cards and effects | Every card, with its emoji and effect |
+| Check-ins and reminders | Check-in windows, reminder DMs, `/lock checkin`, and `/lock notify` |
+| History and logs | `/history`, `/lock log`, codes in private replies, and ratings |
+| Profiles, rules, and kinks | The three markdown documents, limits, and mention suppression |
+
+The card copy follows the ChastiSafe app help. It describes only the features
+Locksmith exposes; ChastiSafe-only features such as task rollers, bots, deck
+editing, and PINK scripts are mentioned only when a card's effect depends on
+them.
 
 ## Configuration
 

@@ -40,6 +40,7 @@ func TestLoginWelcomeText(t *testing.T) {
 		"`/lock notify [enabled]`",
 		"`/lock log [full] [ref]`",
 		"`/history`",
+		"`/docs`",
 		"`/help`",
 		"/lock load link:https://chastisafe.com/#l/1234",
 	} {

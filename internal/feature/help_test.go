@@ -38,6 +38,7 @@ func TestHelpEmbed(t *testing.T) {
 		"/lock log",
 		"/lock share",
 		"/history",
+		"/docs",
 		"/help",
 		"chastisafe.com",
 		"group DMs",

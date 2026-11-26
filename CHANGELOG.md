@@ -6,6 +6,7 @@ Notable changes to Locksmith, newest first.
 
 ### Added
 
+- `/docs` opens a documentation index with pages for getting started, locks and templates, drawing, every card and its effect, check-ins, history and logs, and member documents. Each page has a **Back to docs** button and links to the install, ChastiSafe, and the repository.
 - `/lock load` shows the lock privately before loading it, with **Load lock**, **Simulation** (card locks), and **Open in ChastiSafe** buttons. Nothing is loaded until **Load lock** is pressed.
 
 ### Changed
