@@ -288,6 +288,7 @@ func (f *Feature) handleLogoutCommand(ctx context.Context, s *discordgo.Session,
 	if err := bot.DeferEphemeral(s, i); err != nil {
 		return err
 	}
+	f.clearNotificationMessages(ctx, s, userID)
 	if err := f.forget(ctx, userID); err != nil {
 		if errors.Is(err, errNotConfigured) {
 			return sendEphemeral(s, i, "Locksmith is not configured to store codes.")
@@ -374,6 +375,7 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	if !enabled {
+		f.clearNotificationMessages(ctx, s, userID)
 		if err := f.store.Unsubscribe(ctx, userID); err != nil {
 			f.log.Warn("unsubscribing", "user_id", userID, "err", err)
 			return sendEphemeral(s, i, "I could not update your notifications. Try again in a moment.")
@@ -398,11 +400,12 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 		checkinOnly = lock != nil
 	}
 	if lock == nil {
+		f.clearNotificationMessages(ctx, s, userID)
 		_ = f.store.Unsubscribe(ctx, userID)
 		return sendEphemeral(s, i, "You have no active card lock or check-in to watch, so notifications are off.")
 	}
 
-	if err := f.watchLock(ctx, userID, lock); err != nil {
+	if err := f.watchLock(ctx, s, userID, lock); err != nil {
 		f.log.Warn("subscribing", "user_id", userID, "err", err)
 		return sendEphemeral(s, i, "I could not save your subscription. Try again in a moment.")
 	}
@@ -440,10 +443,17 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 
 // watchLock subscribes the member to draw and check-in reminders for one lock.
 // A member watches one lock at a time, so a new subscription replaces the old
-// one. The first check reports draws that are already available.
-func (f *Feature) watchLock(ctx context.Context, userID string, lock *cs.LoadedLock) error {
+// one and clears the old lock's notification DMs. The first check reports
+// draws that are already available.
+func (f *Feature) watchLock(ctx context.Context, s *discordgo.Session, userID string, lock *cs.LoadedLock) error {
 	if f.store == nil || lock == nil {
 		return errNotConfigured
+	}
+	prev, err := f.store.Notification(ctx, userID)
+	if err != nil {
+		f.log.Warn("reading the previous subscription", "user_id", userID, "err", err)
+	} else if prev != nil && prev.LockID != lock.ID.String() {
+		f.clearNotificationMessages(ctx, s, userID)
 	}
 	now := f.now()
 	next := now.Add(10 * time.Second)

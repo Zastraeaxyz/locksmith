@@ -366,3 +366,71 @@ func TestResolveDocumentUser(t *testing.T) {
 		t.Fatalf("unknown handle = %v, %v", ok, err)
 	}
 }
+
+func TestNotificationMessageRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+
+	messages := []NotificationMessage{
+		{MessageID: "m-1", DiscordUserID: "user-1", ChannelID: "dm-1", Kind: "draw", CreatedAt: now, DeleteAt: now.Add(24 * time.Hour)},
+		{MessageID: "m-2", DiscordUserID: "user-1", ChannelID: "dm-1", Kind: "checkin", CreatedAt: now.Add(time.Minute), DeleteAt: now.Add(48 * time.Hour)},
+		{MessageID: "m-3", DiscordUserID: "user-2", ChannelID: "dm-2", Kind: "draw", CreatedAt: now, DeleteAt: now.Add(-time.Minute)},
+	}
+	for _, message := range messages {
+		if err := st.RecordNotificationMessage(ctx, message); err != nil {
+			t.Fatalf("RecordNotificationMessage(%s): %v", message.MessageID, err)
+		}
+	}
+
+	got, err := st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("user-1 messages = %d, want 2", len(got))
+	}
+	if got[0].MessageID != "m-1" || got[1].MessageID != "m-2" {
+		t.Fatalf("message order = %s, %s", got[0].MessageID, got[1].MessageID)
+	}
+
+	due, err := st.DueNotificationMessages(ctx, now)
+	if err != nil {
+		t.Fatalf("DueNotificationMessages: %v", err)
+	}
+	if len(due) != 1 || due[0].MessageID != "m-3" {
+		t.Fatalf("due at now = %+v", due)
+	}
+
+	due, err = st.DueNotificationMessages(ctx, now.Add(48*time.Hour))
+	if err != nil {
+		t.Fatalf("DueNotificationMessages later: %v", err)
+	}
+	if len(due) != 3 {
+		t.Fatalf("due later = %d, want 3", len(due))
+	}
+
+	if err := st.ForgetNotificationMessage(ctx, "m-1"); err != nil {
+		t.Fatalf("ForgetNotificationMessage: %v", err)
+	}
+	got, err = st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages after forget: %v", err)
+	}
+	if len(got) != 1 || got[0].MessageID != "m-2" {
+		t.Fatalf("remaining messages = %+v", got)
+	}
+
+	// A rejected or deleted credential leaves the tracked DMs for the
+	// notification loop to expire.
+	if err := st.DeleteCredential(ctx, "user-1"); err != nil {
+		t.Fatalf("DeleteCredential: %v", err)
+	}
+	got, err = st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages after DeleteCredential: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("messages after DeleteCredential = %d, want 1", len(got))
+	}
+}

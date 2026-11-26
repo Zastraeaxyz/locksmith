@@ -361,7 +361,7 @@ func TestWatchLock(t *testing.T) {
 	f := &Feature{store: st, now: func() time.Time { return now }}
 
 	lock := &cs.LoadedLock{ID: "lock-1", LockName: "Test lock", Type: "card", Draws: "g", Wait: 60}
-	if err := f.watchLock(ctx, "user-1", lock); err != nil {
+	if err := f.watchLock(ctx, nil, "user-1", lock); err != nil {
 		t.Fatalf("watchLock: %v", err)
 	}
 	got, err := st.Notification(ctx, "user-1")
@@ -380,7 +380,7 @@ func TestWatchLock(t *testing.T) {
 
 	// A lock with draws ready does not wait for the next pick.
 	ready := &cs.LoadedLock{ID: "lock-2", LockName: "Other", Type: "card", Draws: "rg", Picks: 1}
-	if err := f.watchLock(ctx, "user-1", ready); err != nil {
+	if err := f.watchLock(ctx, nil, "user-1", ready); err != nil {
 		t.Fatalf("watchLock with draws: %v", err)
 	}
 	got, err = st.Notification(ctx, "user-1")

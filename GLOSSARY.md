@@ -120,7 +120,8 @@ _Avoid_: Notification, watcher, monitor
 
 **Notification**:
 A DM sent because of a subscription. Draw notifications and check-in reminders
-are the two kinds.
+are the two kinds. Locksmith deletes a notification when a newer one replaces
+it, after a day, or when the subscription ends.
 _Avoid_: Alert, ping
 
 **Check-in**:

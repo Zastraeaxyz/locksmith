@@ -232,7 +232,7 @@ func (f *Feature) handleLoadModal(ctx context.Context, s *discordgo.Session, i *
 	}
 
 	watched := true
-	if err := f.watchLock(ctx, userID, &locks[0]); err != nil {
+	if err := f.watchLock(ctx, s, userID, &locks[0]); err != nil {
 		watched = false
 		f.log.Warn("subscribing after load", "user_id", userID, "lock_id", locks[0].ID.String(), "err", err)
 	}

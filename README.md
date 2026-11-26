@@ -140,6 +140,11 @@ member who checks in gets the next cycle's reminders as usual. If a reminder
 never arrives, or notifications are off, `/lock checkin` records the same
 check-in on demand once the window is open.
 
+Notification DMs are temporary. When a newer draw or check-in notification
+replaces one, Locksmith deletes the older DM, and any notification DM older
+than a day is deleted. Ending the subscription, turning notifications off, or
+logging out clears the ones that remain.
+
 `/lock log` shows draws from the last five minutes by default, and always at
 least the last ten; older picks appear under **Earlier draws**. Draws within a
 minute of each other share one line of card icons, so a run of picks reads as a

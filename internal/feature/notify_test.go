@@ -1,11 +1,26 @@
 package feature
 
 import (
+	"context"
+	"log/slog"
+	"path/filepath"
 	"testing"
 	"time"
 
 	cs "github.com/zastraeaxyz/chastisafe-go"
+
+	"locksmith/internal/store"
 )
+
+func openNotificationStore(t *testing.T) *store.Store {
+	t.Helper()
+	st, err := store.Open(context.Background(), filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
 
 func TestNextFreezeCheckAt(t *testing.T) {
 	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
@@ -120,5 +135,97 @@ func TestNextFreezeCheckFallsBackWithoutRegularity(t *testing.T) {
 	want := now.Add(15 * time.Minute)
 	if !got.Equal(want) {
 		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
+	}
+}
+
+func TestSupersededNotificationMessages(t *testing.T) {
+	messages := []store.NotificationMessage{
+		{MessageID: "draw-old", Kind: notificationKindDraw},
+		{MessageID: "draw-new", Kind: notificationKindDraw},
+		{MessageID: "checkin", Kind: notificationKindCheckin},
+	}
+	got := supersededNotificationMessages(messages, notificationKindDraw, "draw-new")
+	if len(got) != 1 || got[0].MessageID != "draw-old" {
+		t.Fatalf("superseded = %+v", got)
+	}
+	if got := supersededNotificationMessages(messages, notificationKindNotice, "notice"); got != nil {
+		t.Fatalf("notice superseded = %+v, want none", got)
+	}
+}
+
+func TestExpireNotificationMessages(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+
+	for _, message := range []store.NotificationMessage{
+		{MessageID: "stale", DiscordUserID: "user-1", ChannelID: "dm-1", Kind: notificationKindDraw,
+			CreatedAt: now.Add(-25 * time.Hour), DeleteAt: now.Add(-time.Hour)},
+		{MessageID: "fresh", DiscordUserID: "user-1", ChannelID: "dm-1", Kind: notificationKindCheckin,
+			CreatedAt: now, DeleteAt: now.Add(notificationMessageTTL)},
+	} {
+		if err := st.RecordNotificationMessage(ctx, message); err != nil {
+			t.Fatalf("RecordNotificationMessage: %v", err)
+		}
+	}
+
+	f.expireNotificationMessages(ctx, nil)
+
+	got, err := st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages: %v", err)
+	}
+	if len(got) != 1 || got[0].MessageID != "fresh" {
+		t.Fatalf("remaining messages = %+v", got)
+	}
+}
+
+func TestWatchLockClearsPreviousLockMessages(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	now := time.Date(2026, 11, 26, 12, 0, 0, 0, time.UTC)
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+
+	if err := st.Watch(ctx, store.Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		NextCheckAt:   now.Add(time.Hour),
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if err := st.RecordNotificationMessage(ctx, store.NotificationMessage{
+		MessageID:     "m-1",
+		DiscordUserID: "user-1",
+		ChannelID:     "dm-1",
+		Kind:          notificationKindDraw,
+		CreatedAt:     now,
+		DeleteAt:      now.Add(notificationMessageTTL),
+	}); err != nil {
+		t.Fatalf("RecordNotificationMessage: %v", err)
+	}
+
+	// Re-subscribing to the same lock keeps the current notification.
+	if err := f.watchLock(ctx, nil, "user-1", &cs.LoadedLock{ID: "lock-1", Type: "card", Draws: "rg", Picks: 1}); err != nil {
+		t.Fatalf("watchLock same lock: %v", err)
+	}
+	got, err := st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("same-lock messages = %d, want 1", len(got))
+	}
+
+	// Switching locks drops the old lock's notification DMs.
+	if err := f.watchLock(ctx, nil, "user-1", &cs.LoadedLock{ID: "lock-2", Type: "card", Draws: "rg", Picks: 1}); err != nil {
+		t.Fatalf("watchLock new lock: %v", err)
+	}
+	got, err = st.NotificationMessages(ctx, "user-1")
+	if err != nil {
+		t.Fatalf("NotificationMessages after switch: %v", err)
+	}
+	if len(got) != 0 {
+		t.Fatalf("after switching locks = %+v, want none", got)
 	}
 }

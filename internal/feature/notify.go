@@ -13,6 +13,18 @@ import (
 	"locksmith/internal/store"
 )
 
+// Notification kinds decide which messages replace each other. A newer
+// notification deletes the previous one of the same kind.
+const (
+	notificationKindDraw    = "draw"
+	notificationKindCheckin = "checkin"
+	notificationKindNotice  = "notice"
+
+	// notificationMessageTTL is how long a notification DM stays before the
+	// bot deletes it. Notifications are transient by design.
+	notificationMessageTTL = 24 * time.Hour
+)
+
 // NotifyLoop checks due draw subscriptions until ctx is done.
 func (f *Feature) NotifyLoop(ctx context.Context, s *discordgo.Session) {
 	if f.store == nil {
@@ -40,6 +52,8 @@ func (f *Feature) NotifyLoop(ctx context.Context, s *discordgo.Session) {
 }
 
 func (f *Feature) runDueNotifications(ctx context.Context, s *discordgo.Session) {
+	f.expireNotificationMessages(ctx, s)
+
 	due, err := f.store.DueNotifications(ctx, f.now())
 	if err != nil {
 		f.log.Warn("loading due notifications", "err", err)
@@ -59,6 +73,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	client, cred, err := f.clientFor(ctx, userID)
 	if err != nil {
 		f.log.Info("dropping notification subscription", "user_id", userID, "err", err)
+		f.clearNotificationMessages(ctx, s, userID)
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
@@ -67,6 +82,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	if err != nil {
 		if errors.Is(err, cs.ErrUnauthorized) {
 			f.log.Info("chastisafe rejected a saved code during notify", "user_id", userID)
+			f.clearNotificationMessages(ctx, s, userID)
 			_ = f.store.Unsubscribe(ctx, userID)
 			f.apiFailure(ctx, userID, err)
 			return
@@ -79,23 +95,27 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	now := f.now()
 	lock := findLock(locks, n.LockID, cred.ChastiSafeID, now)
 	if lock == nil {
+		f.clearNotificationMessages(ctx, s, userID)
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
 	if lock.IsReady() {
-		_ = sendDM(s, userID, fmt.Sprintf("**%s** is ready to unlock, so notifications are off.", lockName(lock)))
+		f.clearNotificationMessages(ctx, s, userID)
+		_ = f.sendNotification(ctx, s, userID, notificationKindNotice,
+			fmt.Sprintf("**%s** is ready to unlock, so notifications are off.", lockName(lock)), nil)
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
-	checkin, sendFailed := f.notifyCheckin(s, userID, lock, cred.ChastiSafeID, now, n)
+	checkin, sendFailed := f.notifyCheckin(ctx, s, userID, lock, cred.ChastiSafeID, now, n)
 
 	if lock.IsFrozen() {
 		next := f.nextFreezeCheck(ctx, client, lock, now)
 		if next.IsZero() {
-			_ = sendDM(s, userID, fmt.Sprintf(
+			f.clearNotificationMessages(ctx, s, userID)
+			_ = f.sendNotification(ctx, s, userID, notificationKindNotice, fmt.Sprintf(
 				"**%s** is still frozen after the expected freeze window, so draw notifications are off. Use `/lock notify` to turn them back on.",
 				lockName(lock),
-			))
+			), nil)
 			_ = f.store.Unsubscribe(ctx, userID)
 			return
 		}
@@ -118,7 +138,8 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		LastNotifiedAt: n.LastNotifiedAt,
 	}
 	if draws > n.LastPicks {
-		if err := sendDMWithComponents(s, userID, notificationText(lock, now), drawNotificationButtons(lock)); err != nil {
+		if err := f.sendNotification(ctx, s, userID, notificationKindDraw,
+			notificationText(lock, now), drawNotificationButtons(lock)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			drawFailed = true
 			sendFailed = true
@@ -171,7 +192,7 @@ func (f *Feature) reschedule(ctx context.Context, userID string, next time.Time)
 // notifyCheckin sends any due check-in reminder. It returns the reminder state
 // to store and whether a send failed. The stage is only advanced when the
 // reminder was delivered, so a failed send is retried in the same cycle.
-func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.LoadedLock, chastisafeID string, now time.Time, prev store.Notification) (checkinReminder, bool) {
+func (f *Feature) notifyCheckin(ctx context.Context, s *discordgo.Session, userID string, lock *cs.LoadedLock, chastisafeID string, now time.Time, prev store.Notification) (checkinReminder, bool) {
 	if lock.CheckInPeriod <= 0 || lock.LockeeID.String() != chastisafeID {
 		return checkinReminder{}, false
 	}
@@ -181,7 +202,7 @@ func (f *Feature) notifyCheckin(s *discordgo.Session, userID string, lock *cs.Lo
 		return reminder, false
 	}
 
-	if err := sendDMWithComponents(s, userID,
+	if err := f.sendNotification(ctx, s, userID, notificationKindCheckin,
 		checkinText(lock, reminder.Send, reminder.Due),
 		checkinNotificationComponents(lock, now),
 	); err != nil {
@@ -364,21 +385,129 @@ func plural(count int) string {
 	return "s"
 }
 
-func sendDM(s *discordgo.Session, userID, content string) error {
-	return sendDMWithComponents(s, userID, content, nil)
+// sentNotification is the location of a notification DM that was just sent.
+type sentNotification struct {
+	ChannelID string
+	MessageID string
 }
 
-func sendDMWithComponents(s *discordgo.Session, userID, content string, components []discordgo.MessageComponent) error {
+// sendNotification sends one DM and records it so it can be deleted later. A
+// newer message of the same kind replaces the previous one.
+func (f *Feature) sendNotification(ctx context.Context, s *discordgo.Session, userID, kind, content string, components []discordgo.MessageComponent) error {
+	sent, err := sendDMWithComponents(s, userID, content, components)
+	if err != nil {
+		return err
+	}
+
+	now := f.now()
+	if err := f.store.RecordNotificationMessage(ctx, store.NotificationMessage{
+		MessageID:     sent.MessageID,
+		DiscordUserID: userID,
+		ChannelID:     sent.ChannelID,
+		Kind:          kind,
+		CreatedAt:     now,
+		DeleteAt:      now.Add(notificationMessageTTL),
+	}); err != nil {
+		f.log.Warn("recording a notification message", "user_id", userID, "err", err)
+		return nil
+	}
+
+	f.supersedeNotificationMessages(ctx, s, userID, kind, sent.MessageID)
+	return nil
+}
+
+// supersedeNotificationMessages deletes the member's older messages of one
+// kind, so only the newest notification of that kind remains.
+func (f *Feature) supersedeNotificationMessages(ctx context.Context, s *discordgo.Session, userID, kind, keepMessageID string) {
+	if f.store == nil {
+		return
+	}
+	messages, err := f.store.NotificationMessages(ctx, userID)
+	if err != nil {
+		f.log.Warn("loading notification messages", "user_id", userID, "err", err)
+		return
+	}
+	for _, message := range supersededNotificationMessages(messages, kind, keepMessageID) {
+		f.deleteNotificationMessage(ctx, s, message)
+	}
+}
+
+// supersededNotificationMessages picks the stored messages that a new message
+// of the same kind replaces.
+func supersededNotificationMessages(messages []store.NotificationMessage, kind, keepMessageID string) []store.NotificationMessage {
+	var out []store.NotificationMessage
+	for _, message := range messages {
+		if message.Kind == kind && message.MessageID != keepMessageID {
+			out = append(out, message)
+		}
+	}
+	return out
+}
+
+// clearNotificationMessages deletes every notification DM a member still has,
+// so ending a subscription leaves no stale buttons behind.
+func (f *Feature) clearNotificationMessages(ctx context.Context, s *discordgo.Session, userID string) {
+	if f.store == nil {
+		return
+	}
+	messages, err := f.store.NotificationMessages(ctx, userID)
+	if err != nil {
+		f.log.Warn("loading notification messages", "user_id", userID, "err", err)
+		return
+	}
+	for _, message := range messages {
+		f.deleteNotificationMessage(ctx, s, message)
+	}
+}
+
+// expireNotificationMessages deletes notification DMs past their lifetime.
+func (f *Feature) expireNotificationMessages(ctx context.Context, s *discordgo.Session) {
+	if f.store == nil {
+		return
+	}
+	messages, err := f.store.DueNotificationMessages(ctx, f.now())
+	if err != nil {
+		f.log.Warn("loading expired notification messages", "err", err)
+		return
+	}
+	for _, message := range messages {
+		if ctx.Err() != nil {
+			return
+		}
+		f.deleteNotificationMessage(ctx, s, message)
+	}
+}
+
+// deleteNotificationMessage deletes one DM and forgets it. Deletion is best
+// effort: a message Discord refuses to delete must not be retried forever.
+func (f *Feature) deleteNotificationMessage(ctx context.Context, s *discordgo.Session, message store.NotificationMessage) {
+	if s != nil {
+		if err := s.ChannelMessageDelete(message.ChannelID, message.MessageID); err != nil {
+			f.log.Warn("deleting a notification message", "user_id", message.DiscordUserID, "err", err)
+		}
+	}
+	if err := f.store.ForgetNotificationMessage(ctx, message.MessageID); err != nil {
+		f.log.Warn("forgetting a notification message", "user_id", message.DiscordUserID, "err", err)
+	}
+}
+
+func sendDMWithComponents(s *discordgo.Session, userID, content string, components []discordgo.MessageComponent) (sentNotification, error) {
 	channel, err := s.UserChannelCreate(userID)
 	if err != nil {
-		return fmt.Errorf("opening DM channel: %w", err)
+		return sentNotification{}, fmt.Errorf("opening DM channel: %w", err)
 	}
 	if channel == nil || channel.ID == "" {
-		return errors.New("no DM channel returned")
+		return sentNotification{}, errors.New("no DM channel returned")
 	}
-	_, err = s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
+	msg, err := s.ChannelMessageSendComplex(channel.ID, &discordgo.MessageSend{
 		Content:    content,
 		Components: components,
 	})
-	return err
+	if err != nil {
+		return sentNotification{}, err
+	}
+	if msg == nil || msg.ID == "" {
+		return sentNotification{}, errors.New("no DM message returned")
+	}
+	return sentNotification{ChannelID: channel.ID, MessageID: msg.ID}, nil
 }

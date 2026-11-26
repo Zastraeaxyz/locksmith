@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 4
+const schemaVersion = 5
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -77,6 +77,17 @@ type Reminder struct {
 	DueAt         time.Time
 	Stage         string
 	NextCheckAt   time.Time
+}
+
+// NotificationMessage is one DM the bot sent for a notification. The channel
+// and message IDs are stored so the bot can delete old notifications later.
+type NotificationMessage struct {
+	MessageID     string
+	DiscordUserID string
+	ChannelID     string
+	Kind          string
+	CreatedAt     time.Time
+	DeleteAt      time.Time
 }
 
 // Document kinds stored in user_documents.
@@ -222,6 +233,30 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if version < 5 {
+		if _, err := tx.ExecContext(ctx, `
+			CREATE TABLE IF NOT EXISTS notification_messages (
+				message_id      TEXT PRIMARY KEY,
+				discord_user_id TEXT NOT NULL,
+				channel_id      TEXT NOT NULL,
+				kind            TEXT NOT NULL,
+				created_at      INTEGER NOT NULL,
+				delete_at       INTEGER NOT NULL
+			)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			CREATE INDEX IF NOT EXISTS idx_notification_messages_delete_at
+			ON notification_messages(delete_at)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			CREATE INDEX IF NOT EXISTS idx_notification_messages_user_kind
+			ON notification_messages(discord_user_id, kind)`); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}
@@ -271,7 +306,10 @@ func (s *Store) Credential(ctx context.Context, discordUserID string) (*Credenti
 	return &cred, nil
 }
 
-// DeleteCredential removes a member's stored code and notification.
+// DeleteCredential removes a member's stored code and notification
+// subscription. Tracked notification DMs stay until the notify loop expires
+// them, so a rejected code can still clean up its messages once a session is
+// available.
 func (s *Store) DeleteCredential(ctx context.Context, discordUserID string) error {
 	if _, err := s.db.ExecContext(ctx,
 		`DELETE FROM credentials WHERE discord_user_id = ?`, discordUserID); err != nil {
@@ -355,6 +393,81 @@ func (s *Store) Unsubscribe(ctx context.Context, discordUserID string) error {
 	return err
 }
 
+// RecordNotificationMessage remembers a sent notification DM so it can be
+// deleted later.
+func (s *Store) RecordNotificationMessage(ctx context.Context, m NotificationMessage) error {
+	if m.MessageID == "" {
+		return errors.New("store: notification message ID is empty")
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO notification_messages (
+			message_id, discord_user_id, channel_id, kind, created_at, delete_at
+		) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(message_id) DO UPDATE SET
+			discord_user_id = excluded.discord_user_id,
+			channel_id = excluded.channel_id,
+			kind = excluded.kind,
+			created_at = excluded.created_at,
+			delete_at = excluded.delete_at`,
+		m.MessageID, m.DiscordUserID, m.ChannelID, m.Kind, m.CreatedAt.Unix(), m.DeleteAt.Unix(),
+	)
+	return err
+}
+
+// NotificationMessages returns a member's tracked notification DMs.
+func (s *Store) NotificationMessages(ctx context.Context, discordUserID string) ([]NotificationMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT message_id, discord_user_id, channel_id, kind, created_at, delete_at
+		FROM notification_messages
+		WHERE discord_user_id = ?
+		ORDER BY created_at`, discordUserID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []NotificationMessage
+	for rows.Next() {
+		m, err := scanNotificationMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// DueNotificationMessages returns notification DMs whose delete time has
+// passed.
+func (s *Store) DueNotificationMessages(ctx context.Context, now time.Time) ([]NotificationMessage, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT message_id, discord_user_id, channel_id, kind, created_at, delete_at
+		FROM notification_messages
+		WHERE delete_at <= ?
+		ORDER BY delete_at`, now.Unix())
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []NotificationMessage
+	for rows.Next() {
+		m, err := scanNotificationMessage(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
+// ForgetNotificationMessage removes a tracked notification DM.
+func (s *Store) ForgetNotificationMessage(ctx context.Context, messageID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM notification_messages WHERE message_id = ?`, messageID)
+	return err
+}
+
 // ClearCheckin resets the check-in reminder state for one watched lock, so the
 // next cycle can notify again.
 func (s *Store) ClearCheckin(ctx context.Context, discordUserID, lockID string) error {
@@ -427,6 +540,20 @@ func scanNotification(row scanner) (*Notification, error) {
 		n.CheckinDueAt = time.Unix(checkinDue, 0).UTC()
 	}
 	return &n, nil
+}
+
+func scanNotificationMessage(row scanner) (NotificationMessage, error) {
+	var (
+		m                   NotificationMessage
+		createdAt, deleteAt int64
+	)
+	err := row.Scan(&m.MessageID, &m.DiscordUserID, &m.ChannelID, &m.Kind, &createdAt, &deleteAt)
+	if err != nil {
+		return NotificationMessage{}, err
+	}
+	m.CreatedAt = time.Unix(createdAt, 0).UTC()
+	m.DeleteAt = time.Unix(deleteAt, 0).UTC()
+	return m, nil
 }
 
 // SaveDocument inserts or replaces a member's markdown document.

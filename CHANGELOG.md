@@ -11,6 +11,7 @@ Notable changes to Locksmith, newest first.
 ### Changed
 
 - The **Simulation** button stays visible when the keyholder has turned simulation off. Pressing it explains that the keyholder does not want the lock simulated.
+- Notification DMs are temporary: a newer draw or check-in notification replaces the old one, anything older than a day is deleted, and ending the subscription clears the rest.
 
 ## 2026-11-25
 
