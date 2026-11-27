@@ -22,8 +22,11 @@ func TestBoardKeepsOpen(t *testing.T) {
 		{"draws available", &cs.LoadedLock{Type: "card", Picks: 1, MaxPicks: 2, GreensRequired: 1}, true},
 		{"no draws available", &cs.LoadedLock{Type: "card", Picks: 0, MaxPicks: 1, GreensRequired: 1}, false},
 		{"frozen", &cs.LoadedLock{
-			Type: "card", Picks: 1, MaxPicks: 2, GreensRequired: 1, FrozenByCard: true,
+			Type: "card", Picks: 0, MaxPicks: 2, GreensRequired: 1, FrozenByCard: true,
 		}, false},
+		{"leftover card flag with a draw keeps the board open", &cs.LoadedLock{
+			Type: "card", Picks: 1, MaxPicks: 2, GreensRequired: 1, FrozenByCard: true,
+		}, true},
 	}
 
 	for _, tc := range cases {

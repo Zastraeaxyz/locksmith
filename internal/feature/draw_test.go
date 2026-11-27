@@ -543,7 +543,9 @@ func TestCanDrawAgain(t *testing.T) {
 	}{
 		{"nil", nil, false},
 		{"ready", &cs.LoadedLock{Type: "card", Picks: 1, ReadyToUnlock: true}, false},
-		{"frozen", &cs.LoadedLock{Type: "card", Picks: 1, FrozenByCard: true}, false},
+		{"frozen", &cs.LoadedLock{Type: "card", Picks: 0, FrozenByCard: true}, false},
+		{"keyholder frozen", &cs.LoadedLock{Type: "card", Picks: 1, FrozenByKeyholder: true}, false},
+		{"stale card flag", &cs.LoadedLock{Type: "card", Picks: 1, FrozenByCard: true}, true},
 		{"no draws", &cs.LoadedLock{Type: "card", Picks: 0}, false},
 		{"draws", &cs.LoadedLock{Type: "card", Picks: 2}, true},
 	}
@@ -567,7 +569,7 @@ func TestDrawAutoNote(t *testing.T) {
 		{"single card", 1, &cs.LoadedLock{Type: "card", Picks: 2}, "", []string{"Drew 1 card."}},
 		{"several cards", 3, &cs.LoadedLock{Type: "card", Picks: 2}, "", []string{"Drew 3 cards."}},
 		{"ready", 2, &cs.LoadedLock{Type: "card", ReadyToUnlock: true}, "", []string{"Drew 2 cards.", "ready to unlock"}},
-		{"frozen", 2, &cs.LoadedLock{Type: "card", Picks: 1, FrozenByCard: true}, "", []string{"Drew 2 cards.", "frozen"}},
+		{"frozen", 2, &cs.LoadedLock{Type: "card", Picks: 0, FrozenByKeyholder: true}, "", []string{"Drew 2 cards.", "frozen"}},
 		{"stopped", 2, &cs.LoadedLock{Type: "card", Picks: 1}, "Network down.", []string{"Drew 2 cards.", "Network down."}},
 		{"nothing drawn", 0, &cs.LoadedLock{Type: "card", Picks: 1}, "", []string{"No draws were available."}},
 		{"nothing drawn with error", 0, &cs.LoadedLock{Type: "card", Picks: 1}, "Network down.", []string{"Network down."}},

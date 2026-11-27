@@ -194,7 +194,7 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 // when the end is unknown: a keyholder freeze lasts until the keyholder ends
 // it, and a lock without a draw interval has no scale.
 func freezeMaximumText(lock *cs.LoadedLock) string {
-	if lock == nil || !lock.FrozenByCard || lock.FrozenByKeyholder || lock.Regularity <= 0 {
+	if lock == nil || !lock.IsFrozen() || !lock.FrozenByCard || lock.FrozenByKeyholder || lock.Regularity <= 0 {
 		return ""
 	}
 	maximum := elapsedLabel(time.Duration(freezeMaxFactor*lock.Regularity) * time.Minute)

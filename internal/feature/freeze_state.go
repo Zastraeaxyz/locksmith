@@ -37,7 +37,7 @@ type freezeState struct {
 // can hold. A keyholder freeze has no maximum, and a lock without a draw
 // interval has no scale.
 func freezePastMaximum(lock *cs.LoadedLock, since, now time.Time) bool {
-	if lock == nil || since.IsZero() || lock.FrozenByKeyholder || !lock.FrozenByCard || lock.Regularity <= 0 {
+	if lock == nil || !lock.IsFrozen() || since.IsZero() || lock.FrozenByKeyholder || !lock.FrozenByCard || lock.Regularity <= 0 {
 		return false
 	}
 	return !now.Before(freezeGuaranteeAt(since, time.Duration(lock.Regularity)*time.Minute))

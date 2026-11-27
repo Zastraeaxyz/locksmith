@@ -12,6 +12,7 @@ Notable changes to Locksmith, newest first.
 
 ### Fixed
 
+- A card lock with a draw available is no longer treated as frozen. ChastiSafe can leave `frozenByCard` set after a freeze ends, so Locksmith follows the app: an available pick wins, and a keyholder freeze still blocks.
 - `/lock status`, `/lock draw`, and `/lock open` read the frozen state from `GET /api-v1/loaded` on every use. A card freeze that ChastiSafe still reports past 4x the draw interval gets one more read, and the reply never claims a duration the freeze cannot have.
 - The 4x freeze message no longer says a freeze outlasted its maximum. A flag still set at that point is a timing lag, so Locksmith waits a minute and checks again before pinging.
 - A freeze's elapsed time in `/lock status` and `/lock draw` now comes from the card that froze the lock. Sticky cards are not freezes, while stun and dice cards are, so a stun freeze no longer reports the whole lock duration.

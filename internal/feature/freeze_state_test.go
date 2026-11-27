@@ -2,6 +2,7 @@ package feature
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -36,13 +37,13 @@ func TestFreezePastMaximum(t *testing.T) {
 	}{
 		{
 			name:  "card freeze past four intervals",
-			lock:  &cs.LoadedLock{FrozenByCard: true, Regularity: 60},
+			lock:  &cs.LoadedLock{Type: "card", FrozenByCard: true, Regularity: 60},
 			since: now.Add(-5 * time.Hour),
 			want:  true,
 		},
 		{
 			name:  "card freeze inside four intervals",
-			lock:  &cs.LoadedLock{FrozenByCard: true, Regularity: 60},
+			lock:  &cs.LoadedLock{Type: "card", FrozenByCard: true, Regularity: 60},
 			since: now.Add(-3 * time.Hour),
 			want:  false,
 		},
@@ -59,14 +60,20 @@ func TestFreezePastMaximum(t *testing.T) {
 			want:  false,
 		},
 		{
+			name:  "leftover flag with a draw available",
+			lock:  &cs.LoadedLock{Type: "card", FrozenByCard: true, Regularity: 60, Picks: 1},
+			since: now.Add(-9 * time.Hour),
+			want:  false,
+		},
+		{
 			name:  "missing draw interval has no scale",
-			lock:  &cs.LoadedLock{FrozenByCard: true},
+			lock:  &cs.LoadedLock{Type: "card", FrozenByCard: true},
 			since: now.Add(-9 * time.Hour),
 			want:  false,
 		},
 		{
 			name:  "missing start has no maximum",
-			lock:  &cs.LoadedLock{FrozenByCard: true, Regularity: 60},
+			lock:  &cs.LoadedLock{Type: "card", FrozenByCard: true, Regularity: 60},
 			since: time.Time{},
 			want:  false,
 		},
@@ -166,5 +173,53 @@ func TestDrawPickRefreshesFromLoaded(t *testing.T) {
 	}
 	if session.currentLock() == nil || session.currentLock().Picks != 0 {
 		t.Fatalf("session lock = %+v, want the refreshed lock", session.currentLock())
+	}
+}
+
+// TestDrawAfterStaleCardFreeze pins the API behaviour that caused a false
+// freeze: ChastiSafe keeps frozenByCard set after a card freeze ends, but
+// reports a pick. The app draws, and Locksmith must agree.
+func TestDrawAfterStaleCardFreeze(t *testing.T) {
+	var locks []cs.LoadedLock
+	if err := json.Unmarshal(readFixture(t, "chastisafe/loaded_draw_after_freeze.json"), &locks); err != nil {
+		t.Fatalf("unmarshal loaded lock: %v", err)
+	}
+	if len(locks) != 1 {
+		t.Fatalf("locks = %d, want 1", len(locks))
+	}
+	lock := &locks[0]
+
+	if !lock.FrozenByCard {
+		t.Fatal("fixture should keep the leftover frozenByCard flag")
+	}
+	if lock.IsFrozen() {
+		t.Fatal("a card lock with a pick available is not frozen")
+	}
+	if got := lock.DrawsAvailable(); got != 1 {
+		t.Fatalf("DrawsAvailable = %d, want 1", got)
+	}
+	if !canDrawAgain(lock) {
+		t.Fatal("canDrawAgain = false, want true for an available pick")
+	}
+	if got := drawableLock(locks, lock.LockeeID.String()); got == nil || got.ID != lock.ID {
+		t.Fatalf("drawableLock = %+v, want the lock with the leftover flag", got)
+	}
+
+	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
+	text := statusText(renderStatusEmbeds(
+		[]cs.LockView{{Lock: *lock, Role: cs.RoleLockee}},
+		lock.LockeeID.String(),
+		nil,
+		now,
+	))
+	for _, want := range []string{":locked: Locked", "195 cards", "1/1 draws"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status missing %q:\n%s", want, text)
+		}
+	}
+	for _, bad := range []string{"Frozen", "Freeze lasts", "still reports"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("status should not show %q for a drawable lock:\n%s", bad, text)
+		}
 	}
 }
