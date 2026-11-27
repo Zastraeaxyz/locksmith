@@ -39,7 +39,7 @@ user-install button, and a link to this repository.
 | `/logout` | Removes your saved code and draw subscription |
 | `/lock status [public]` | Shows your active ChastiSafe locks with draws available, deck, timers, and check-ins |
 | `/lock load link:<url>` | Shows a lock privately before loading it, with Load lock, Simulation (card locks), and Open in ChastiSafe buttons; starts it on Load lock and asks privately for the keyholder passcode |
-| `/lock draw` | Opens a public draw board with Draw and Stop while the lock runs, and Open, Put green back, Reset, and Let keyholder decide when it is ready to unlock; only you and your keyholder can press them |
+| `/lock draw [auto]` | Opens a public draw board with Draw and Stop while the lock runs, and Open, Put green back, Reset, and Let keyholder decide when it is ready to unlock; only you and your keyholder can press them; `auto:true` takes every available draw in a row |
 | `/lock open [ref]` | Opens a ready lock and reveals the device code; the reply is private in servers and a normal message in DMs |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
@@ -166,6 +166,9 @@ to post the reply in the channel without codes. `/lock status` also accepts
 `/lock draw` posts a public draw board so the channel can watch the session.
 While the lock runs, the board has Draw and Stop. When the lock is ready to
 unlock, the board has Open, Put green back, Reset, and Let keyholder decide.
+Add `auto:true` to draw auto: the board takes every draw the lock allows in a
+row and updates after each card, including extra draws from greens, stickies,
+doubles, and go-again cards, until the lock is ready, freezes, or runs out.
 Open reveals the code privately in a server and normally in a DM. Put green back
 returns the last green card to the deck so drawing continues. Reset asks for
 typed confirmation and restarts the lock from the beginning. Let keyholder

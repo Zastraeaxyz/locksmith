@@ -102,6 +102,7 @@ var docsPages = []docsPage{
 			"",
 			"**Starting the board**",
 			"Run `/lock draw`. The board is public so a keyholder or the channel can watch. It logs cards, totals, and how many draws are left.",
+			"Add `auto:true` to draw auto. The board takes every draw the lock allows in a row and updates after each card, including extra draws from greens, stickies, doubles, and go-again cards. It stops when the lock is ready, freezes, or runs out.",
 			"",
 			"**While the lock runs**",
 			"• **Draw** picks the next card.",

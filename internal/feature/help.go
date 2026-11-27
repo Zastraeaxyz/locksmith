@@ -87,8 +87,8 @@ func guideText() string {
 	var b strings.Builder
 	b.WriteString("**Commands**\n")
 	b.WriteString("• `/lock status` shows your active locks, draws left, timers, and next check-in.\n")
-	b.WriteString("• `/lock load link:<share link>` starts a shared lock. I generate the device code, so you cannot pick one you would remember. Set your device to the code I reply with, then forget it.\n")
-	b.WriteString("• `/lock draw` opens the board. Press **Draw** to pick a card; when the lock is ready, it offers **Open**, **Put green back**, **Reset**, and **Let keyholder decide**.\n")
+	b.WriteString("• `/lock load link:<share link>` starts a shared lock. I generate a device code you cannot remember. Set your device to it, then forget it.\n")
+	b.WriteString("• `/lock draw` opens the board. **Draw** picks a card, or `auto:true` takes every draw. When ready, it offers **Open**, **Put green back**, **Reset**, and **Let keyholder decide**.\n")
 	b.WriteString("• `/lock open [ref]` opens a ready lock and shows its device code. The reply is private in servers and normal in DMs.\n")
 	b.WriteString("• `/lock rate` rates your latest completed lock.\n")
 	b.WriteString("• `/lock checkin [ref]` records a check-in when one is due.\n")
