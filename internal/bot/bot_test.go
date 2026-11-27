@@ -1,6 +1,7 @@
 package bot
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -97,6 +98,57 @@ func TestCommandLabel(t *testing.T) {
 			}
 			if got := commandLabel(i); got != tc.want {
 				t.Errorf("commandLabel() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCanUseFollowup(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "missing access",
+			err:  &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingAccess}},
+			want: true,
+		},
+		{
+			name: "missing permissions",
+			err:  &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeMissingPermissions}},
+			want: true,
+		},
+		{
+			name: "unknown channel",
+			err:  &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownChannel}},
+			want: true,
+		},
+		{
+			name: "unknown guild",
+			err:  &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: discordgo.ErrCodeUnknownGuild}},
+			want: true,
+		},
+		{
+			name: "other api error",
+			err:  &discordgo.RESTError{Message: &discordgo.APIErrorMessage{Code: 0}},
+			want: false,
+		},
+		{
+			name: "error without a message",
+			err:  &discordgo.RESTError{},
+			want: false,
+		},
+		{
+			name: "not a rest error",
+			err:  errors.New("network down"),
+			want: false,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canUseFollowup(tc.err); got != tc.want {
+				t.Fatalf("canUseFollowup() = %v, want %v", got, tc.want)
 			}
 		})
 	}

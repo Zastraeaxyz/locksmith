@@ -515,7 +515,7 @@ func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 // EditEmbeds replaces a deferred reply with embeds, then sends any extra
-// embeds as follow-ups because Discord caps ten embeds per message.
+// embeds as regular messages because Discord caps ten embeds per message.
 func EditEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
 	const perMessage = 10
 	if len(embeds) == 0 {
@@ -531,11 +531,7 @@ func EditEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*
 	}
 	for start := perMessage; start < len(embeds); start += perMessage {
 		end := min(start+perMessage, len(embeds))
-		params := &discordgo.WebhookParams{Embeds: embeds[start:end]}
-		if ephemeral {
-			params.Flags = discordgo.MessageFlagsEphemeral
-		}
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+		if err := sendExtra(s, i, "", embeds[start:end], ephemeral); err != nil {
 			return err
 		}
 	}
@@ -561,8 +557,53 @@ func EditEphemeral(s *discordgo.Session, i *discordgo.InteractionCreate, content
 	return Edit(s, i, content)
 }
 
-// EditChunks replaces a deferred reply, splitting long text across follow-up
-// messages. Follow-ups match the visibility of the original reply.
+// sendExtra posts one extra part of a multi-message reply. A public part is a
+// regular channel message, so the bot does not reply to its own response. An
+// ephemeral part must stay an interaction follow-up, because Discord has no
+// ephemeral channel message. A user-installed app may not be a guild member, so
+// a public send that Discord refuses falls back to the interaction webhook.
+func sendExtra(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
+	if ephemeral {
+		return sendFollowup(s, i, content, embeds, true)
+	}
+	if _, err := s.ChannelMessageSendComplex(i.ChannelID, &discordgo.MessageSend{
+		Content: content,
+		Embeds:  embeds,
+	}); err == nil {
+		return nil
+	} else if !canUseFollowup(err) {
+		return err
+	}
+	return sendFollowup(s, i, content, embeds, false)
+}
+
+// sendFollowup posts a follow-up through the interaction webhook.
+func sendFollowup(s *discordgo.Session, i *discordgo.InteractionCreate, content string, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
+	params := &discordgo.WebhookParams{Content: content, Embeds: embeds}
+	if ephemeral {
+		params.Flags = discordgo.MessageFlagsEphemeral
+	}
+	_, err := s.FollowupMessageCreate(i.Interaction, true, params)
+	return err
+}
+
+// canUseFollowup reports whether a channel send failed for a reason the
+// interaction webhook can bypass, such as an app that is not in the guild.
+func canUseFollowup(err error) bool {
+	var rest *discordgo.RESTError
+	if !errors.As(err, &rest) || rest.Message == nil {
+		return false
+	}
+	switch rest.Message.Code {
+	case discordgo.ErrCodeMissingAccess, discordgo.ErrCodeMissingPermissions,
+		discordgo.ErrCodeUnknownChannel, discordgo.ErrCodeUnknownGuild:
+		return true
+	}
+	return false
+}
+
+// EditChunks replaces a deferred reply, splitting long text across regular
+// channel messages. Follow-ups match the visibility of the original reply.
 func EditChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
@@ -572,11 +613,7 @@ func EditChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text strin
 		return err
 	}
 	for _, part := range chunks[1:] {
-		params := &discordgo.WebhookParams{Content: part}
-		if ephemeral {
-			params.Flags = discordgo.MessageFlagsEphemeral
-		}
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+		if err := sendExtra(s, i, part, nil, ephemeral); err != nil {
 			return err
 		}
 	}
@@ -604,11 +641,7 @@ func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, tex
 		return err
 	}
 	for _, part := range chunks[1:] {
-		params := &discordgo.WebhookParams{Content: part}
-		if ephemeral {
-			params.Flags = discordgo.MessageFlagsEphemeral
-		}
-		if _, err := s.FollowupMessageCreate(i.Interaction, true, params); err != nil {
+		if err := sendExtra(s, i, part, nil, ephemeral); err != nil {
 			return err
 		}
 	}
