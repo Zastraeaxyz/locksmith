@@ -273,9 +273,17 @@ func TestDrawBlockedMessage(t *testing.T) {
 		t.Fatalf("nil message = %q", got)
 	}
 
-	frozen := &cs.LoadedLock{ID: "f", LockName: "Frozen Lock", Type: "card", FrozenByKeyholder: true}
+	frozen := &cs.LoadedLock{
+		ID: "f", LockName: "Frozen Lock", Type: "card",
+		FrozenByCard: true, Regularity: 60,
+	}
 	got := drawBlockedMessage(frozen, map[cs.ID]time.Time{"f": now.Add(-time.Hour)}, now)
-	for _, want := range []string{"Frozen Lock", "frozen for 1hr", "unfrozen"} {
+	for _, want := range []string{
+		"Frozen Lock",
+		"frozen for 1hr",
+		"up to 4hrs (4x the 1hr draw interval)",
+		"unfrozen",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("frozen message missing %q:\n%s", want, got)
 		}
@@ -284,6 +292,26 @@ func TestDrawBlockedMessage(t *testing.T) {
 	got = drawBlockedMessage(frozen, nil, now)
 	if strings.Contains(got, "frozen for") {
 		t.Errorf("frozen message without history should not claim a duration:\n%s", got)
+	}
+	if !strings.Contains(got, "up to 4hrs") {
+		t.Errorf("frozen message without history should still show the maximum:\n%s", got)
+	}
+
+	keyholder := &cs.LoadedLock{
+		ID: "k", LockName: "Keyholder Lock", Type: "card",
+		FrozenByKeyholder: true, Regularity: 60,
+	}
+	got = drawBlockedMessage(keyholder, map[cs.ID]time.Time{"k": now.Add(-time.Hour)}, now)
+	if strings.Contains(got, "A freeze lasts") {
+		t.Errorf("keyholder freeze should not claim a maximum:\n%s", got)
+	}
+
+	noInterval := &cs.LoadedLock{
+		ID: "n", LockName: "No Interval", Type: "card", FrozenByCard: true,
+	}
+	got = drawBlockedMessage(noInterval, nil, now)
+	if strings.Contains(got, "A freeze lasts") {
+		t.Errorf("freeze without a draw interval should not claim a maximum:\n%s", got)
 	}
 
 	ready := &cs.LoadedLock{ID: "r", LockName: "Ready Lock", Type: "card", ReadyToUnlock: true}

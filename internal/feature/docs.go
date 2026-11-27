@@ -120,7 +120,7 @@ var docsPages = []docsPage{
 			"Only the lockee and keyholder can press board buttons. Anyone else gets a private refusal.",
 			"",
 			"**Frozen locks**",
-			"While frozen, draws do not accumulate. A freeze card holds for 2 to 4 times the draw interval and hides the exact time. `/lock status` and the board show the minimum freeze, 2x the interval. A keyholder freeze lasts until the keyholder unfreezes the lock. Reminders stay on through a freeze: Locksmith keeps watching and DMs you when draws resume.",
+			"While frozen, draws do not accumulate. A freeze card holds for 2 to 4 times the draw interval and hides the exact time. `/lock status` and the board show how long the lock has been frozen and the maximum freeze, 4x the interval. A keyholder freeze lasts until the keyholder unfreezes the lock. Reminders stay on through a freeze: Locksmith keeps watching and DMs you when draws resume.",
 			"",
 			"**Simulation**",
 			"Card templates have a **Simulation** button on share posts and previews. It shows ChastiSafe's estimate: average duration, average cards, ranges, draw interval, and how many runs were used. If the keyholder turned simulation off, the button explains that instead.",

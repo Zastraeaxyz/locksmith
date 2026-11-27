@@ -149,34 +149,41 @@ func TestStatusFrozenSince(t *testing.T) {
 	}
 }
 
-func TestStatusFreezeMinimum(t *testing.T) {
+func TestStatusFreezeMaximum(t *testing.T) {
 	now := statusTestNow()
 	lock := statusTestLock("a", "Lock A", now)
 	lock.Regularity = 60
 	lock.FrozenByCard = true
 
 	text := statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if !strings.Contains(text, ":hourglass: Minimum freeze 2hrs (2x the 1hr draw interval)") {
-		t.Errorf("status missing freeze minimum:\n%s", text)
+	if !strings.Contains(text, ":hourglass: Freeze lasts up to 4hrs (4x the 1hr draw interval)") {
+		t.Errorf("status missing freeze maximum:\n%s", text)
 	}
 
 	lock.Regularity = 120
 	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if !strings.Contains(text, ":hourglass: Minimum freeze 4hrs (2x the 2hrs draw interval)") {
-		t.Errorf("status missing scaled freeze minimum:\n%s", text)
+	if !strings.Contains(text, ":hourglass: Freeze lasts up to 8hrs (4x the 2hrs draw interval)") {
+		t.Errorf("status missing scaled freeze maximum:\n%s", text)
 	}
+
+	lock.FrozenByKeyholder = true
+	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
+	if strings.Contains(text, "Freeze lasts") {
+		t.Errorf("keyholder status should not show a freeze maximum:\n%s", text)
+	}
+	lock.FrozenByKeyholder = false
 
 	lock.FrozenByCard = false
 	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if strings.Contains(text, "Minimum freeze") {
-		t.Errorf("unfrozen status should not show a freeze minimum:\n%s", text)
+	if strings.Contains(text, "Freeze lasts") {
+		t.Errorf("unfrozen status should not show a freeze maximum:\n%s", text)
 	}
 
 	lock.FrozenByCard = true
 	lock.Regularity = 0
 	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
-	if strings.Contains(text, "Minimum freeze") {
-		t.Errorf("status without a draw interval should not guess a minimum:\n%s", text)
+	if strings.Contains(text, "Freeze lasts") {
+		t.Errorf("status without a draw interval should not guess a maximum:\n%s", text)
 	}
 }
 

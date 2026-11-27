@@ -6,6 +6,7 @@ Notable changes to Locksmith, newest first.
 
 ### Changed
 
+- `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.
 - A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock, announces the first draw after the freeze, and sends one message at 4x the draw interval, the longest a freeze card holds. The message that asked members to run `/lock notify` is gone.
 - `/lock notify` accepts a frozen card lock, and Locksmith restores a missing watch at startup for members who did not turn notifications off on purpose.
 

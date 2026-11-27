@@ -271,11 +271,14 @@ func drawBlockedMessage(lock *cs.LoadedLock, freezeSince map[cs.ID]time.Time, no
 	name := lockName(lock)
 	switch {
 	case lock.IsFrozen():
+		message := fmt.Sprintf("**%s** is frozen.", name)
 		if since, ok := freezeSince[lock.ID]; ok && !since.IsZero() {
-			return fmt.Sprintf("**%s** is frozen for %s. Drawing is unavailable until it is unfrozen.",
-				name, elapsedLabel(now.Sub(since)))
+			message = fmt.Sprintf("**%s** is frozen for %s.", name, elapsedLabel(now.Sub(since)))
 		}
-		return fmt.Sprintf("**%s** is frozen. Drawing is unavailable until it is unfrozen.", name)
+		if window := freezeMaximumText(lock); window != "" {
+			message += " A freeze lasts " + window + "."
+		}
+		return message + " Drawing is unavailable until it is unfrozen."
 	case lock.IsReady():
 		return fmt.Sprintf("**%s** is ready to unlock. There is nothing left to draw.", name)
 	case lock.DrawsAvailable() == 0:

@@ -110,7 +110,8 @@ func renderLockStatusBody(lock *cs.LoadedLock, role cs.LockRole, opts statusOpti
 	b.WriteString(stateLine(lock, opts))
 	b.WriteString("\n")
 
-	if line := freezeMinimumLine(lock); line != "" {
+	if line := freezeMaximumText(lock); line != "" {
+		b.WriteString(":hourglass: Freeze lasts ")
 		b.WriteString(line)
 		b.WriteString("\n")
 	}
@@ -179,15 +180,16 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 	return strings.Join(parts, " · ")
 }
 
-// freezeMinimumLine explains the shortest freeze. A freeze card holds for two
-// to four draw intervals, so the minimum scales with the lock's draw time.
-func freezeMinimumLine(lock *cs.LoadedLock) string {
-	if lock == nil || !lock.IsFrozen() || lock.Regularity <= 0 {
+// freezeMaximumText explains the longest a card freeze can hold. It returns ""
+// when the end is unknown: a keyholder freeze lasts until the keyholder ends
+// it, and a lock without a draw interval has no scale.
+func freezeMaximumText(lock *cs.LoadedLock) string {
+	if lock == nil || !lock.FrozenByCard || lock.FrozenByKeyholder || lock.Regularity <= 0 {
 		return ""
 	}
-	minimum := elapsedLabel(time.Duration(2*lock.Regularity) * time.Minute)
+	maximum := elapsedLabel(time.Duration(4*lock.Regularity) * time.Minute)
 	interval := elapsedLabel(time.Duration(lock.Regularity) * time.Minute)
-	return fmt.Sprintf(":hourglass: Minimum freeze %s (2x the %s draw interval)", minimum, interval)
+	return fmt.Sprintf("up to %s (4x the %s draw interval)", maximum, interval)
 }
 
 // lockStatusColor maps a lock's state to the draw board palette: icy blue when
