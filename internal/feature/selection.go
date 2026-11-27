@@ -142,6 +142,26 @@ func drawableLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
 	return newest
 }
 
+// activeCardLock returns the caller's newest active card lock, frozen or not.
+// A subscription outlives a freeze, so watching a lock must not skip one that
+// is frozen right now.
+func activeCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
+	var newest *cs.LoadedLock
+	for idx := range locks {
+		lock := &locks[idx]
+		if !lock.IsCardLock() || lock.IsReady() {
+			continue
+		}
+		if chastisafeID != "" && lock.LockeeID.String() != chastisafeID {
+			continue
+		}
+		if newest == nil || lock.LoadTime.Time.After(newest.LoadTime.Time) {
+			newest = lock
+		}
+	}
+	return newest
+}
+
 // readyCardLock returns the caller's newest card lock that is ready to unlock.
 func readyCardLock(locks []cs.LoadedLock, chastisafeID string) *cs.LoadedLock {
 	var newest *cs.LoadedLock

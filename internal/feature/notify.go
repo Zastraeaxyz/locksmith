@@ -40,6 +40,7 @@ func (f *Feature) NotifyLoop(ctx context.Context, s *discordgo.Session) {
 	case <-time.After(10 * time.Second):
 	}
 
+	f.backfillSubscriptions(ctx)
 	f.runDueNotifications(ctx, s)
 	for {
 		select {
@@ -65,6 +66,66 @@ func (f *Feature) runDueNotifications(ctx context.Context, s *discordgo.Session)
 		}
 		f.checkNotification(ctx, s, n)
 	}
+}
+
+// backfillSubscriptions restores watches for members who have a saved code but
+// no subscription and never turned notifications off. A subscription used to
+// end when a freeze outlasted its window, so this brings those members back
+// silently. It also picks up a lock loaded in the ChastiSafe app without
+// /lock notify.
+func (f *Feature) backfillSubscriptions(ctx context.Context) {
+	if f.store == nil {
+		return
+	}
+	userIDs, err := f.store.UnwatchedCredentialIDs(ctx)
+	if err != nil {
+		f.log.Warn("loading members to watch", "err", err)
+		return
+	}
+	restored := 0
+	for _, userID := range userIDs {
+		if ctx.Err() != nil {
+			return
+		}
+		if f.backfillSubscription(ctx, userID) {
+			restored++
+		}
+	}
+	if restored == 0 {
+		return
+	}
+	f.track("notify backfill")
+	f.log.Info("subscriptions restored", "members", restored)
+}
+
+// backfillSubscription watches the member's newest active card lock, frozen or
+// not, or else the lock with the next check-in.
+func (f *Feature) backfillSubscription(ctx context.Context, userID string) bool {
+	client, cred, err := f.clientFor(ctx, userID)
+	if err != nil {
+		f.log.Info("skipping a watch backfill", "user_id", userID, "err", err)
+		return false
+	}
+	locks, err := client.Loaded(ctx)
+	if err != nil {
+		if !errors.Is(err, cs.ErrUnauthorized) {
+			f.log.Warn("loading locks for a watch backfill", "user_id", userID, "err", err)
+		}
+		return false
+	}
+	lock := activeCardLock(locks, cred.ChastiSafeID)
+	if lock == nil {
+		lock = nextCheckinLock(locks, cred.ChastiSafeID, f.now())
+	}
+	if lock == nil {
+		return false
+	}
+	if err := f.watchLock(ctx, nil, userID, lock); err != nil {
+		f.log.Warn("restoring a subscription", "user_id", userID, "err", err)
+		return false
+	}
+	f.log.Info("subscription restored", "user_id", userID, "lock_id", lock.ID.String())
+	return true
 }
 
 func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n store.Notification) {
@@ -109,16 +170,10 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	checkin, sendFailed := f.notifyCheckin(ctx, s, userID, lock, cred.ChastiSafeID, now, n)
 
 	if lock.IsFrozen() {
-		next := f.nextFreezeCheck(ctx, client, lock, now)
-		if next.IsZero() {
-			f.clearNotificationMessages(ctx, s, userID)
-			_ = f.sendNotification(ctx, s, userID, notificationKindNotice, fmt.Sprintf(
-				"**%s** is still frozen after the expected freeze window, so draw notifications are off. Use `/lock notify` to turn them back on.",
-				lockName(lock),
-			), nil)
-			_ = f.store.Unsubscribe(ctx, userID)
-			return
-		}
+		window := f.currentFreeze(ctx, client, lock)
+		n = f.trackFreeze(ctx, userID, lock, n, window, now)
+		f.pingFreezeWindow(ctx, s, userID, lock, n, now)
+		next := f.nextFreezeCheck(window, now)
 		if checkinAt := f.nextCheckinCheck(lock, now); !checkinAt.IsZero() && checkinAt.Before(next) {
 			next = checkinAt
 		}
@@ -128,6 +183,13 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	}
 
 	draws := lock.DrawsAvailable()
+	// A freeze can wipe the draws the last poll saw, so the first draw after
+	// one is announced even when the count did not grow.
+	afterFreeze := !n.FreezeStartAt.IsZero() && draws > 0
+	// The freeze-over prefix is only needed when the guaranteed message has
+	// not already told the member that the freeze ended.
+	announceFreezeEnd := afterFreeze && !n.FreezePingAt.IsZero()
+	drawAttempted := draws > n.LastPicks || afterFreeze
 
 	drawFailed := false
 	record := store.Draws{
@@ -137,14 +199,21 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		LastPicks:      n.LastPicks,
 		LastNotifiedAt: n.LastNotifiedAt,
 	}
-	if draws > n.LastPicks {
+	if drawAttempted {
+		content := notificationText(lock, now)
+		if announceFreezeEnd {
+			content = "The freeze is over.\n" + content
+		}
 		if err := f.sendNotification(ctx, s, userID, notificationKindDraw,
-			notificationText(lock, now), drawNotificationButtons(lock)); err != nil {
+			content, drawNotificationButtons(lock)); err != nil {
 			f.log.Warn("sending draw notification", "user_id", userID, "err", err)
 			drawFailed = true
 			sendFailed = true
 		} else {
 			record.LastNotifiedAt = now
+			if afterFreeze {
+				f.clearFreeze(ctx, userID, lock.ID.String())
+			}
 			f.log.Info("draw notification sent",
 				"user_id", userID,
 				"lock_id", lock.ID.String(),
@@ -162,6 +231,9 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 	f.saveCheckin(ctx, userID, lock.ID, checkin, n)
 	if err := f.store.RecordDraws(ctx, record); err != nil {
 		f.log.Warn("updating notification", "user_id", userID, "err", err)
+	}
+	if !drawAttempted {
+		f.pingFreezeWindow(ctx, s, userID, lock, n, now)
 	}
 }
 
@@ -243,39 +315,134 @@ func (f *Feature) nextNotificationCheck(lock *cs.LoadedLock, now time.Time, draw
 	return next
 }
 
-// nextFreezeCheck picks when to poll a frozen lock again. A card freeze lasts
-// between two and four draw intervals, so it samples half-interval steps
-// across that window. It returns the zero time once the window has passed and
-// polling should stop. A keyholder freeze has no known end, so it keeps the
-// usual cadence.
-func (f *Feature) nextFreezeCheck(ctx context.Context, client *cs.Client, lock *cs.LoadedLock, now time.Time) time.Time {
-	if lock == nil || lock.FrozenByKeyholder {
-		return now.Add(15 * time.Minute)
+// freezeWindow is the freeze a lock is in, as far as the lock log can tell.
+// A keyholder freeze has no known end, so it only carries the interval for the
+// post-freeze draw check. ok is false when the log has no usable start.
+type freezeWindow struct {
+	since     time.Time
+	interval  time.Duration
+	keyholder bool
+	ok        bool
+}
+
+// currentFreeze reads the lock log for the start of the current freeze.
+func (f *Feature) currentFreeze(ctx context.Context, client *cs.Client, lock *cs.LoadedLock) freezeWindow {
+	if lock == nil {
+		return freezeWindow{}
 	}
-	interval := time.Duration(lock.Regularity) * time.Minute
-	if interval <= 0 {
-		return now.Add(15 * time.Minute)
+	window := freezeWindow{
+		interval:  time.Duration(lock.Regularity) * time.Minute,
+		keyholder: lock.FrozenByKeyholder,
 	}
 	entries, err := f.freezeLog(ctx, client, lock)
 	if err != nil {
 		f.log.Warn("loading freeze history", "lock_id", lock.ID.String(), "err", err)
-		return now.Add(15 * time.Minute)
+		return window
 	}
 	since, ok := freezeStartFor(lock, entries)
 	if !ok || since.IsZero() {
+		return window
+	}
+	window.since = since
+	window.ok = true
+	return window
+}
+
+// nextFreezeCheck picks when to poll a frozen lock again. A card freeze lasts
+// between two and four draw intervals, so it samples half-interval steps
+// across that window. After the window it keeps checking every fifteen minutes
+// until the freeze ends, because the subscription must outlive the freeze. A
+// keyholder freeze has no known end, so it uses the same cadence throughout.
+func (f *Feature) nextFreezeCheck(window freezeWindow, now time.Time) time.Time {
+	if window.keyholder || window.interval <= 0 || window.since.IsZero() {
 		return now.Add(15 * time.Minute)
 	}
-	next, ok := nextFreezeCheckAt(since, interval, now)
-	if !ok {
-		return time.Time{}
+	if next, ok := nextFreezeCheckAt(window.since, window.interval, now); ok {
+		return next
+	}
+	return now.Add(15 * time.Minute)
+}
+
+// trackFreeze records the freeze a watched lock is in. A freeze that is
+// already past its expected window when it is first seen does not arm a stale
+// guaranteed ping; the post-freeze draw notification still covers it.
+func (f *Feature) trackFreeze(ctx context.Context, userID string, lock *cs.LoadedLock, n store.Notification, window freezeWindow, now time.Time) store.Notification {
+	if !window.ok || window.since.Equal(n.FreezeStartAt) {
+		return n
+	}
+	next := n
+	next.FreezeStartAt = window.since
+	next.FreezePingAt = time.Time{}
+	if !window.keyholder {
+		if due := freezeGuaranteeAt(window.since, window.interval); !due.IsZero() && now.Before(due) {
+			next.FreezePingAt = due
+		}
+	}
+	if err := f.store.RecordFreeze(ctx, store.Freeze{
+		DiscordUserID: userID,
+		LockID:        lock.ID.String(),
+		StartAt:       next.FreezeStartAt,
+		PingAt:        next.FreezePingAt,
+	}); err != nil {
+		f.log.Warn("recording a freeze", "user_id", userID, "err", err)
 	}
 	return next
 }
 
+// pingFreezeWindow sends the guaranteed notification once the longest freeze
+// has passed. It keeps the freeze start, so the first draw after the freeze
+// still produces a draw notification.
+func (f *Feature) pingFreezeWindow(ctx context.Context, s *discordgo.Session, userID string, lock *cs.LoadedLock, n store.Notification, now time.Time) {
+	if n.FreezePingAt.IsZero() || now.Before(n.FreezePingAt) {
+		return
+	}
+	text := fmt.Sprintf(
+		"**%s** is unfrozen. I will ping you when your next draw is ready.",
+		lockName(lock),
+	)
+	if lock.IsFrozen() {
+		text = fmt.Sprintf(
+			"**%s** is frozen longer than expected. I will ping you as soon as a draw is available.",
+			lockName(lock),
+		)
+	}
+	if err := f.sendNotification(ctx, s, userID, notificationKindNotice, text, nil); err != nil {
+		f.log.Warn("sending the freeze notification", "user_id", userID, "err", err)
+		return
+	}
+	f.track("notify freeze ping")
+	f.log.Info("freeze notification sent", "user_id", userID, "lock_id", lock.ID.String())
+	if err := f.store.RecordFreeze(ctx, store.Freeze{
+		DiscordUserID: userID,
+		LockID:        lock.ID.String(),
+		StartAt:       n.FreezeStartAt,
+		PingAt:        time.Time{},
+	}); err != nil {
+		f.log.Warn("clearing the freeze ping", "user_id", userID, "err", err)
+	}
+}
+
+// clearFreeze ends the tracked freeze after the draw notification that follows
+// it was delivered.
+func (f *Feature) clearFreeze(ctx context.Context, userID, lockID string) {
+	if err := f.store.ClearFreeze(ctx, userID, lockID); err != nil {
+		f.log.Warn("clearing a freeze", "user_id", userID, "err", err)
+	}
+}
+
+// freezeGuaranteeAt is the moment a freeze must be over: four draw intervals
+// after it started, the longest a freeze card holds.
+func freezeGuaranteeAt(since time.Time, interval time.Duration) time.Time {
+	if since.IsZero() || interval <= 0 {
+		return time.Time{}
+	}
+	return since.Add(4 * interval)
+}
+
 // nextFreezeCheckAt returns the next card-freeze poll after now. Checkpoints
 // run from 2x to 4x the draw interval in half-interval steps, so a one hour
-// draw time polls at 2h, 2h30, 3h, 3h30, and 4h. The final poll at 4x is the
-// last chance to see the freeze end.
+// draw time polls at 2h, 2h30, 3h, 3h30, and 4h. ok is false once the window
+// has passed, which means the caller keeps polling on its usual cadence.
 func nextFreezeCheckAt(since time.Time, interval time.Duration, now time.Time) (time.Time, bool) {
 	if interval <= 0 {
 		return time.Time{}, false

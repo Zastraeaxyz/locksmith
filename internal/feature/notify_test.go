@@ -117,9 +117,14 @@ func TestNextFreezeCheckAt(t *testing.T) {
 func TestNextFreezeCheckFallsBackForKeyholder(t *testing.T) {
 	f := New(Options{})
 	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
-	lock := &cs.LoadedLock{Type: "card", FrozenByKeyholder: true, Regularity: 60}
+	window := freezeWindow{
+		since:     now.Add(-time.Hour),
+		interval:  time.Hour,
+		keyholder: true,
+		ok:        true,
+	}
 
-	got := f.nextFreezeCheck(t.Context(), nil, lock, now)
+	got := f.nextFreezeCheck(window, now)
 	want := now.Add(15 * time.Minute)
 	if !got.Equal(want) {
 		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
@@ -129,12 +134,150 @@ func TestNextFreezeCheckFallsBackForKeyholder(t *testing.T) {
 func TestNextFreezeCheckFallsBackWithoutRegularity(t *testing.T) {
 	f := New(Options{})
 	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
-	lock := &cs.LoadedLock{Type: "card", FrozenByCard: true}
+	window := freezeWindow{since: now.Add(-time.Hour), ok: true}
 
-	got := f.nextFreezeCheck(t.Context(), nil, lock, now)
+	got := f.nextFreezeCheck(window, now)
 	want := now.Add(15 * time.Minute)
 	if !got.Equal(want) {
 		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
+	}
+}
+
+func TestNextFreezeCheckKeepsPollingAfterTheWindow(t *testing.T) {
+	f := New(Options{})
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now := since.Add(5 * time.Hour)
+	window := freezeWindow{since: since, interval: time.Hour, ok: true}
+
+	got := f.nextFreezeCheck(window, now)
+	want := now.Add(15 * time.Minute)
+	if !got.Equal(want) {
+		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
+	}
+}
+
+func TestNextFreezeCheckUsesCheckpointsInsideTheWindow(t *testing.T) {
+	f := New(Options{})
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now := since.Add(30 * time.Minute)
+	window := freezeWindow{since: since, interval: time.Hour, ok: true}
+
+	got := f.nextFreezeCheck(window, now)
+	want := since.Add(2 * time.Hour).Add(2 * time.Second)
+	if !got.Equal(want) {
+		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
+	}
+}
+
+func TestFreezeGuaranteeAt(t *testing.T) {
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+
+	if got, want := freezeGuaranteeAt(since, time.Hour), since.Add(4*time.Hour); !got.Equal(want) {
+		t.Fatalf("freezeGuaranteeAt = %v, want %v", got, want)
+	}
+	if got := freezeGuaranteeAt(since, 0); !got.IsZero() {
+		t.Fatalf("zero interval = %v, want zero", got)
+	}
+	if got := freezeGuaranteeAt(time.Time{}, time.Hour); !got.IsZero() {
+		t.Fatalf("zero start = %v, want zero", got)
+	}
+}
+
+func TestTrackFreezeArmsTheGuarantee(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now := since.Add(time.Hour)
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+
+	if err := st.Watch(ctx, store.Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		NextCheckAt:   now,
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	n, err := st.Notification(ctx, "user-1")
+	if err != nil || n == nil {
+		t.Fatalf("Notification: %v, %+v", err, n)
+	}
+	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", FrozenByCard: true, Regularity: 60}
+
+	got := f.trackFreeze(ctx, "user-1", lock, *n, freezeWindow{
+		since: since, interval: time.Hour, ok: true,
+	}, now)
+
+	wantPing := since.Add(4 * time.Hour)
+	if !got.FreezeStartAt.Equal(since) || !got.FreezePingAt.Equal(wantPing) {
+		t.Fatalf("freeze state = %+v, want start %v ping %v", got, since, wantPing)
+	}
+	stored, err := st.Notification(ctx, "user-1")
+	if err != nil || stored == nil {
+		t.Fatalf("Notification after tracking: %v, %+v", err, stored)
+	}
+	if !stored.FreezeStartAt.Equal(since) || !stored.FreezePingAt.Equal(wantPing) {
+		t.Fatalf("stored freeze = %+v", stored)
+	}
+}
+
+func TestTrackFreezeSkipsAStaleGuarantee(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now := since.Add(5 * time.Hour)
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+
+	if err := st.Watch(ctx, store.Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		NextCheckAt:   now,
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	n, err := st.Notification(ctx, "user-1")
+	if err != nil || n == nil {
+		t.Fatalf("Notification: %v, %+v", err, n)
+	}
+	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", FrozenByCard: true, Regularity: 60}
+
+	got := f.trackFreeze(ctx, "user-1", lock, *n, freezeWindow{
+		since: since, interval: time.Hour, ok: true,
+	}, now)
+
+	if !got.FreezeStartAt.Equal(since) {
+		t.Fatalf("start = %v, want %v", got.FreezeStartAt, since)
+	}
+	if !got.FreezePingAt.IsZero() {
+		t.Fatalf("ping = %v, want none", got.FreezePingAt)
+	}
+}
+
+func TestTrackFreezeIgnoresTheKeyholderGuarantee(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	now := since.Add(time.Hour)
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+
+	if err := st.Watch(ctx, store.Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		NextCheckAt:   now,
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	n, err := st.Notification(ctx, "user-1")
+	if err != nil || n == nil {
+		t.Fatalf("Notification: %v, %+v", err, n)
+	}
+	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", FrozenByKeyholder: true, Regularity: 60}
+
+	got := f.trackFreeze(ctx, "user-1", lock, *n, freezeWindow{
+		since: since, interval: time.Hour, keyholder: true, ok: true,
+	}, now)
+
+	if !got.FreezeStartAt.Equal(since) || !got.FreezePingAt.IsZero() {
+		t.Fatalf("freeze state = %+v", got)
 	}
 }
 

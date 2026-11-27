@@ -344,8 +344,8 @@ func TestLoadResultText(t *testing.T) {
 	if strings.Contains(off, "Set your device") {
 		t.Errorf("text without a code still shows one:\n%s", off)
 	}
-	if !strings.Contains(off, "Reminders are off") {
-		t.Errorf("text missing the reminders-off note:\n%s", off)
+	if !strings.Contains(off, "Reminders could not be turned on") {
+		t.Errorf("text missing the reminders-failure note:\n%s", off)
 	}
 }
 

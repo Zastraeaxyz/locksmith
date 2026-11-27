@@ -429,7 +429,7 @@ func loadResultText(lock *cs.LoadedLock, chastisafeID, code string, watched bool
 	if watched {
 		b.WriteString("Reminders are on: I will DM you when a draw is ready or a check-in is due.")
 	} else {
-		b.WriteString("Reminders are off: run `/lock notify` to turn them on.")
+		b.WriteString("Reminders could not be turned on now; I will restore them the next time I start.")
 	}
 	return b.String()
 }

@@ -410,7 +410,18 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 			f.log.Warn("unsubscribing", "user_id", userID, "err", err)
 			return sendEphemeral(s, i, "I could not update your notifications. Try again in a moment.")
 		}
+		// Remember the choice, so the startup backfill does not turn
+		// notifications back on for a member who turned them off.
+		if err := f.store.OptOut(ctx, userID); err != nil {
+			f.log.Warn("recording a notification opt-out", "user_id", userID, "err", err)
+		}
 		return sendEphemeral(s, i, "Notifications are off.")
+	}
+
+	// Enabling notifications is an explicit opt-in, even when there is no lock
+	// to watch yet, so the startup backfill may restore the watch later.
+	if err := f.store.OptIn(ctx, userID); err != nil {
+		f.log.Warn("clearing a notification opt-out", "user_id", userID, "err", err)
 	}
 
 	client, cred, err := f.clientFor(ctx, userID)
@@ -423,7 +434,7 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	now := f.now()
-	lock := drawableLock(locks, cred.ChastiSafeID)
+	lock := activeCardLock(locks, cred.ChastiSafeID)
 	checkinOnly := false
 	if lock == nil {
 		lock = nextCheckinLock(locks, cred.ChastiSafeID, now)
@@ -453,6 +464,12 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 			"Check-in notifications are on for **%s**. I will ping you when it is due.", name,
 		))
 	}
+	if lock.IsFrozen() {
+		return sendEphemeral(s, i, fmt.Sprintf(
+			"Notifications are on for **%s**. It is frozen now, and I will ping you when a draw is available.",
+			name,
+		))
+	}
 	if draws := lock.DrawsAvailable(); draws > 0 {
 		return sendEphemeral(s, i, fmt.Sprintf(
 			"Notifications are on for **%s**. You have %s available now.",
@@ -478,6 +495,11 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 func (f *Feature) watchLock(ctx context.Context, s *discordgo.Session, userID string, lock *cs.LoadedLock) error {
 	if f.store == nil || lock == nil {
 		return errNotConfigured
+	}
+	// Watching a lock is an explicit request for reminders, so it clears any
+	// recorded opt-out.
+	if err := f.store.OptIn(ctx, userID); err != nil {
+		f.log.Warn("clearing a notification opt-out", "user_id", userID, "err", err)
 	}
 	prev, err := f.store.Notification(ctx, userID)
 	if err != nil {
