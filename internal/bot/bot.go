@@ -515,11 +515,26 @@ func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 // EditEmbeds replaces a deferred reply with embeds, then sends any extra
-// embeds as regular messages because Discord caps ten embeds per message.
+// embeds as regular messages because Discord caps ten embeds per message. A
+// private multi-message reply starts with a short intro so Discord's reply
+// snippet on the following parts stays small.
 func EditEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
 	const perMessage = 10
 	if len(embeds) == 0 {
 		return Edit(s, i, "")
+	}
+
+	if ephemeral && len(embeds) > perMessage {
+		if err := Edit(s, i, "Continued below."); err != nil {
+			return err
+		}
+		for start := 0; start < len(embeds); start += perMessage {
+			end := min(start+perMessage, len(embeds))
+			if err := sendExtra(s, i, "", embeds[start:end], true); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 
 	first := embeds
@@ -602,12 +617,25 @@ func canUseFollowup(err error) bool {
 	return false
 }
 
-// EditChunks replaces a deferred reply, splitting long text across regular
-// channel messages. Follow-ups match the visibility of the original reply.
+// EditChunks replaces a deferred reply, splitting long text across messages. A
+// private multi-message reply starts with a short intro so Discord's reply
+// snippet on the following parts stays small.
 func EditChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
 		return Edit(s, i, "")
+	}
+	if ephemeral && len(chunks) > 1 {
+		intro, rest := replyIntro(text)
+		if err := Edit(s, i, intro); err != nil {
+			return err
+		}
+		for _, part := range chunk(rest, 1900) {
+			if err := sendExtra(s, i, part, nil, true); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	if err := Edit(s, i, chunks[0]); err != nil {
 		return err
@@ -626,7 +654,8 @@ func EditEphemeralChunks(s *discordgo.Session, i *discordgo.InteractionCreate, t
 }
 
 // EditMessageChunks replaces a deferred reply like EditChunks and keeps the
-// component row on the first message, so a button survives a long reply.
+// component row on the first message, so a button survives a long reply. A
+// private multi-message reply starts with a short intro on that first message.
 func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, components []discordgo.MessageComponent, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
@@ -636,6 +665,20 @@ func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, tex
 	if components == nil {
 		components = []discordgo.MessageComponent{}
 	}
+	if ephemeral && len(chunks) > 1 {
+		intro, rest := replyIntro(text)
+		first := &discordgo.WebhookEdit{Content: &intro, Components: &components}
+		if _, err := s.InteractionResponseEdit(i.Interaction, first); err != nil {
+			return err
+		}
+		for _, part := range chunk(rest, 1900) {
+			if err := sendExtra(s, i, part, nil, true); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+
 	first := &discordgo.WebhookEdit{Content: &chunks[0], Components: &components}
 	if _, err := s.InteractionResponseEdit(i.Interaction, first); err != nil {
 		return err
@@ -646,6 +689,23 @@ func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, tex
 		}
 	}
 	return nil
+}
+
+// replyIntro splits a long text into a short intro and the rest. A private
+// multi-message reply uses the first short line as its intro, so Discord's
+// reply snippet on the following parts stays small. A long or missing first
+// line uses a generic intro and leaves the text whole.
+func replyIntro(text string) (string, string) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "Continued below.", ""
+	}
+	line, rest, found := strings.Cut(text, "\n")
+	line = strings.TrimSpace(line)
+	if found && line != "" && len([]rune(line)) <= 120 {
+		return line, strings.TrimLeft(rest, "\n")
+	}
+	return "Continued below.", text
 }
 
 func chunk(text string, size int) []string {

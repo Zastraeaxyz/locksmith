@@ -2,6 +2,7 @@ package bot
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/bwmarrin/discordgo"
@@ -149,6 +150,58 @@ func TestCanUseFollowup(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := canUseFollowup(tc.err); got != tc.want {
 				t.Fatalf("canUseFollowup() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestReplyIntro(t *testing.T) {
+	long := strings.Repeat("x", 121) + "\nbody"
+	cases := []struct {
+		name string
+		text string
+		want string
+		rest string
+	}{
+		{
+			name: "short header",
+			text: "**Lock** (ID `1`)\n:green: :red:",
+			want: "**Lock** (ID `1`)",
+			rest: ":green: :red:",
+		},
+		{
+			name: "blank line after header",
+			text: "Header\n\nbody",
+			want: "Header",
+			rest: "body",
+		},
+		{
+			name: "long header",
+			text: long,
+			want: "Continued below.",
+			rest: long,
+		},
+		{
+			name: "single line",
+			text: "hello",
+			want: "Continued below.",
+			rest: "hello",
+		},
+		{
+			name: "empty",
+			text: "  ",
+			want: "Continued below.",
+			rest: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			intro, rest := replyIntro(tc.text)
+			if intro != tc.want {
+				t.Errorf("intro = %q, want %q", intro, tc.want)
+			}
+			if rest != tc.rest {
+				t.Errorf("rest = %q, want %q", rest, tc.rest)
 			}
 		})
 	}
