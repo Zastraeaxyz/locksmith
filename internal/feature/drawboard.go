@@ -336,7 +336,7 @@ func (s *drawSession) embed(lock *cs.LoadedLock, note string) *discordgo.Message
 	if len(entries) > 0 {
 		b.WriteString("\n\n")
 		remaining, ok := cardsRemaining(lock)
-		b.WriteString(totalsLine(entries, remaining, ok))
+		b.WriteString(totalsLine(entries, lastCard, remaining, ok))
 	}
 
 	return &discordgo.MessageEmbed{
@@ -464,8 +464,12 @@ func nextDrawLine(lock *cs.LoadedLock, now time.Time) string {
 	return fmt.Sprintf("Next draw %s", relativeTimestamp(now.Add(wait)))
 }
 
-func totalsLine(entries []drawEntry, remaining int, hasRemaining bool) string {
-	reds, greens, yellows, doubles := 0, 0, 0, 0
+// totalsLine summarises the session. Yellows are shown as their net effect on
+// the red count, because a count of yellows says nothing about how the deck
+// changed. Hidden and random yellows have no visible effect, so they are left
+// out rather than guessed at.
+func totalsLine(entries []drawEntry, lastCard cs.Card, remaining int, hasRemaining bool) string {
+	reds, greens, doubles, yellowDelta := 0, 0, 0, 0
 	for _, entry := range entries {
 		switch entry.card {
 		case cs.CardRed:
@@ -474,10 +478,16 @@ func totalsLine(entries []drawEntry, remaining int, hasRemaining bool) string {
 			greens++
 		case cs.CardDoubleUp:
 			doubles++
-		case cs.CardYellowP1, cs.CardYellowP2, cs.CardYellowP3,
-			cs.CardYellowM1, cs.CardYellowM2, cs.CardYellow,
-			cs.CardYellowUK, cs.CardYellowRN:
-			yellows++
+		case cs.CardYellowP1:
+			yellowDelta++
+		case cs.CardYellowP2:
+			yellowDelta += 2
+		case cs.CardYellowP3:
+			yellowDelta += 3
+		case cs.CardYellowM1:
+			yellowDelta--
+		case cs.CardYellowM2:
+			yellowDelta -= 2
 		}
 	}
 
@@ -485,16 +495,19 @@ func totalsLine(entries []drawEntry, remaining int, hasRemaining bool) string {
 		fmt.Sprintf("%s %d red", cardEmojiMarkup(cs.CardRed), reds),
 		fmt.Sprintf("%s %d green", cardEmojiMarkup(cs.CardGreen), greens),
 	}
-	if yellows > 0 {
-		parts = append(parts, fmt.Sprintf("%s %d yellow", cardEmojiMarkup(cs.CardYellow), yellows))
+	if yellowDelta != 0 {
+		parts = append(parts, fmt.Sprintf("%s %+d red", cardEmojiMarkup(cs.CardYellow), yellowDelta))
 	}
 	if doubles > 0 {
 		parts = append(parts, fmt.Sprintf("%s %d double up", cardEmojiMarkup(cs.CardDoubleUp), doubles))
 	}
+	if markup := cardEmojiMarkup(lastCard); markup != "" {
+		parts = append(parts, fmt.Sprintf("last card was %s", markup))
+	}
 	if hasRemaining {
 		parts = append(parts, fmt.Sprintf("%d remaining", remaining))
 	}
-	return "Totals: " + strings.Join(parts, ", ")
+	return "Summary: " + strings.Join(parts, ", ")
 }
 
 func newSessionID() string {

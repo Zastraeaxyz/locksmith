@@ -88,8 +88,8 @@ func TestDrawEmbedRunning(t *testing.T) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
 		}
 	}
-	if strings.Contains(embed.Description, "Totals:") {
-		t.Errorf("empty board should not show totals:\n%s", embed.Description)
+	if strings.Contains(embed.Description, "Summary:") {
+		t.Errorf("empty board should not show a summary:\n%s", embed.Description)
 	}
 	if strings.Contains(embed.Description, "Next draw") {
 		t.Errorf("running board should not show a next draw:\n%s", embed.Description)
@@ -108,7 +108,7 @@ func TestDrawEmbedLiveTotalsCountdown(t *testing.T) {
 	session.add(drawEntry{card: cs.CardRed})
 
 	embed := session.embed(lock, "")
-	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, 3 remaining"
+	want := "Summary: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, last card was " + cardEmojiMarkup(cs.CardRed) + ", 3 remaining"
 	if !strings.Contains(embed.Description, want) {
 		t.Errorf("description missing %q:\n%s", want, embed.Description)
 	}
@@ -119,7 +119,7 @@ func TestDrawEmbedLiveTotalsCountdown(t *testing.T) {
 	session.add(drawEntry{card: cs.CardGreen})
 
 	embed = session.embed(lock, "")
-	want = "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, 2 remaining"
+	want = "Summary: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, last card was " + cardEmojiMarkup(cs.CardGreen) + ", 2 remaining"
 	if !strings.Contains(embed.Description, want) {
 		t.Errorf("description missing %q:\n%s", want, embed.Description)
 	}
@@ -146,7 +146,7 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 		"3. " + cardEmojiMarkup(cs.CardDoubleUp) + " Double up card",
 		"3 used · 0 left",
 		"Next draw <t:",
-		"Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, " + cardEmojiMarkup(cs.CardYellow) + " 1 yellow, " + cardEmojiMarkup(cs.CardDoubleUp) + " 1 double up, 0 remaining",
+		"Summary: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green, " + cardEmojiMarkup(cs.CardYellow) + " +3 red, " + cardEmojiMarkup(cs.CardDoubleUp) + " 1 double up, last card was " + cardEmojiMarkup(cs.CardDoubleUp) + ", 0 remaining",
 	} {
 		if !strings.Contains(embed.Description, want) {
 			t.Errorf("description missing %q:\n%s", want, embed.Description)
@@ -158,18 +158,56 @@ func TestDrawEmbedFinishedSummary(t *testing.T) {
 }
 
 func TestTotalsLineOmitsMissingCards(t *testing.T) {
-	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}}, 0, false)
-	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 0 red, " + cardEmojiMarkup(cs.CardGreen) + " 2 green"
+	got := totalsLine([]drawEntry{{card: cs.CardGreen}, {card: cs.CardGreen}}, "", 0, false)
+	want := "Summary: " + cardEmojiMarkup(cs.CardRed) + " 0 red, " + cardEmojiMarkup(cs.CardGreen) + " 2 green"
 	if got != want {
 		t.Fatalf("totalsLine = %q, want %q", got, want)
 	}
 }
 
 func TestTotalsLineShowsRemaining(t *testing.T) {
-	got := totalsLine([]drawEntry{{card: cs.CardRed}, {card: cs.CardGreen}}, 5, true)
-	want := "Totals: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, 5 remaining"
+	got := totalsLine([]drawEntry{{card: cs.CardRed}, {card: cs.CardGreen}}, cs.CardGreen, 5, true)
+	want := "Summary: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 1 green, last card was " + cardEmojiMarkup(cs.CardGreen) + ", 5 remaining"
 	if got != want {
 		t.Fatalf("totalsLine = %q, want %q", got, want)
+	}
+}
+
+func TestTotalsLineShowsYellowNetRedEffect(t *testing.T) {
+	entries := []drawEntry{
+		{card: cs.CardYellowM2},
+		{card: cs.CardGreen},
+		{card: cs.CardYellowP2},
+		{card: cs.CardGreen},
+		{card: cs.CardYellowM2},
+		{card: cs.CardRed},
+	}
+	got := totalsLine(entries, cs.CardRed, 168, true)
+	want := "Summary: " + cardEmojiMarkup(cs.CardRed) + " 1 red, " + cardEmojiMarkup(cs.CardGreen) + " 2 green, " + cardEmojiMarkup(cs.CardYellow) + " -2 red, last card was " + cardEmojiMarkup(cs.CardRed) + ", 168 remaining"
+	if got != want {
+		t.Fatalf("totalsLine = %q, want %q", got, want)
+	}
+}
+
+func TestTotalsLineOmitsZeroYellowNet(t *testing.T) {
+	got := totalsLine([]drawEntry{{card: cs.CardYellowP2}, {card: cs.CardYellowM2}}, "", 0, false)
+	if strings.Contains(got, cardEmojiMarkup(cs.CardYellow)+" +0 red") {
+		t.Fatalf("totalsLine should omit a zero yellow net: %q", got)
+	}
+	want := "Summary: " + cardEmojiMarkup(cs.CardRed) + " 0 red, " + cardEmojiMarkup(cs.CardGreen) + " 0 green"
+	if got != want {
+		t.Fatalf("totalsLine = %q, want %q", got, want)
+	}
+}
+
+func TestTotalsLineOmitsHiddenYellows(t *testing.T) {
+	got := totalsLine([]drawEntry{
+		{card: cs.CardYellow},
+		{card: cs.CardYellowUK},
+		{card: cs.CardYellowRN},
+	}, "", 0, false)
+	if strings.Contains(got, cardEmojiMarkup(cs.CardYellow)) {
+		t.Fatalf("totalsLine should omit hidden yellows: %q", got)
 	}
 }
 
