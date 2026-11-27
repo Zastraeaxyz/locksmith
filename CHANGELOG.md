@@ -2,6 +2,12 @@
 
 Notable changes to Locksmith, newest first.
 
+## 2026-11-27
+
+### Fixed
+
+- Check-in reminders no longer offer a **Check-in** button before the check-in is due. ChastiSafe's tolerance is a late window, not an early one, so the button now appears at the due moment and stays through the overdue period.
+
 ## 2026-11-26
 
 ### Added
