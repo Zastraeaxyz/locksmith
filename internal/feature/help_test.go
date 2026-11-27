@@ -37,6 +37,7 @@ func TestHelpEmbed(t *testing.T) {
 		"/lock notify",
 		"/lock log",
 		"/lock deck",
+		"/lock progress",
 		"/lock share",
 		"/history",
 		"/docs",

@@ -1,0 +1,23 @@
+{
+  "id": "1000000000000000000",
+  "application_id": "1574588415783997481",
+  "type": 2,
+  "data": {
+    "id": "2000000000000000003",
+    "name": "lock",
+    "type": 1,
+    "options": [
+      {"name": "progress", "type": 1, "options": []}
+    ]
+  },
+  "channel_id": "3000000000000000001",
+  "user": {
+    "id": "990454274196668516",
+    "username": "testuser",
+    "global_name": "Test User",
+    "discriminator": "0"
+  },
+  "token": "interaction-token",
+  "version": 1,
+  "locale": "en-US"
+}

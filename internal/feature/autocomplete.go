@@ -75,7 +75,7 @@ func (f *Feature) handleLockAutocomplete(ctx context.Context, s *discordgo.Sessi
 			f.loadedCache.put(userID, locks)
 		}
 		return bot.Autocomplete(s, i, buildRefChoices(ref, openCandidates(locks, cred.ChastiSafeID)))
-	case "deck":
+	case "deck", "progress":
 		locks, ok := f.loadedCache.get(userID)
 		if !ok {
 			locks, err = client.Loaded(ctx)

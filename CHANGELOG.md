@@ -4,6 +4,10 @@ Notable changes to Locksmith, newest first.
 
 ## 2026-11-27
 
+### Added
+
+- `/lock progress` shows a day-by-day UTC report for a card lock: the cards drawn, the cards added or removed, and the deck at the end of each day. A visible deck is reconstructed exactly from the live composition. A hidden deck is estimated from its configured size and the cards seen, with ranges when doubles or random yellows make the exact count unknowable. `days` limits the report, and `ref` picks another card lock.
+
 ### Changed
 
 - `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.

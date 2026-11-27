@@ -41,6 +41,11 @@ func TestSnapshot(t *testing.T) {
 		env.snapshot(t, "lock_log_full", "lock_log_full", env.feature.handleLockCommand)
 	})
 
+	t.Run("lock progress", func(t *testing.T) {
+		env := newSnapshotEnv(t)
+		env.snapshot(t, "lock_progress", "lock_progress", env.feature.handleLockCommand)
+	})
+
 	t.Run("login modal", func(t *testing.T) {
 		env := newSnapshotEnv(t)
 		env.snapshot(t, "login_modal", "login_modal", env.feature.handleLoginModal)

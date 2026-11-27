@@ -162,6 +162,34 @@ func lockCommand() *discordgo.ApplicationCommand {
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
+				Name:        "progress",
+				Description: "Show a day-by-day deck report for a card lock",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:         discordgo.ApplicationCommandOptionString,
+						Name:         "ref",
+						Description:  "Pick an active card lock",
+						Required:     false,
+						Autocomplete: true,
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionInteger,
+						Name:        "days",
+						Description: "Show only the most recent N days (default all)",
+						Required:    false,
+						MinValue:    intPtrFloat(1),
+						MaxValue:    float64(progressDayLimit),
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "public",
+						Description: "Post the reply publicly instead of privately",
+						Required:    false,
+					},
+				},
+			},
+			{
+				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "log",
 				Description: "Show the draw log for a lock",
 				Options: []*discordgo.ApplicationCommandOption{
@@ -360,6 +388,8 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 		return f.handleLockNotify(ctx, s, i, enabled)
 	case "deck":
 		return f.handleLockDeck(ctx, s, i, sub.Options)
+	case "progress":
+		return f.handleLockProgress(ctx, s, i, sub.Options)
 	case "log":
 		return f.handleLockLog(ctx, s, i, sub.Options)
 	default:
