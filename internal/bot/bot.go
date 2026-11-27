@@ -515,22 +515,22 @@ func ReplyEphemeralFollowup(s *discordgo.Session, i *discordgo.InteractionCreate
 }
 
 // EditEmbeds replaces a deferred reply with embeds, then sends any extra
-// embeds as regular messages because Discord caps ten embeds per message. A
-// private multi-message reply starts with a short intro so Discord's reply
-// snippet on the following parts stays small.
+// embeds as regular messages because Discord caps ten embeds per message. When
+// the extra parts must use follow-ups, the reply starts with a short intro so
+// Discord's reply snippet stays small.
 func EditEmbeds(s *discordgo.Session, i *discordgo.InteractionCreate, embeds []*discordgo.MessageEmbed, ephemeral bool) error {
 	const perMessage = 10
 	if len(embeds) == 0 {
 		return Edit(s, i, "")
 	}
 
-	if ephemeral && len(embeds) > perMessage {
+	if len(embeds) > perMessage && (ephemeral || !canPostRegular(s, i)) {
 		if err := Edit(s, i, "Continued below."); err != nil {
 			return err
 		}
 		for start := 0; start < len(embeds); start += perMessage {
 			end := min(start+perMessage, len(embeds))
-			if err := sendExtra(s, i, "", embeds[start:end], true); err != nil {
+			if err := sendExtra(s, i, "", embeds[start:end], ephemeral); err != nil {
 				return err
 			}
 		}
@@ -617,21 +617,56 @@ func canUseFollowup(err error) bool {
 	return false
 }
 
+// canPostRegular reports whether the bot can send a normal channel message in
+// the interaction's channel. When it cannot, a multi-message reply must use
+// interaction follow-ups, so it starts with a short intro to keep the reply
+// snippet small.
+func canPostRegular(s *discordgo.Session, i *discordgo.InteractionCreate) bool {
+	if s.State == nil || s.State.User == nil {
+		return false
+	}
+	if i.GuildID == "" {
+		// A bot DM is owned by the bot. A group DM may not be, but its channel
+		// type is available in state when the bot can act there.
+		if channel, err := s.State.Channel(i.ChannelID); err == nil && channel != nil {
+			return channel.Type == discordgo.ChannelTypeDM
+		}
+		return true
+	}
+	if _, err := s.State.Guild(i.GuildID); err != nil {
+		return false
+	}
+	perms, err := s.State.UserChannelPermissions(s.State.User.ID, i.ChannelID)
+	if err != nil {
+		return false
+	}
+	if perms&discordgo.PermissionSendMessages == 0 ||
+		perms&discordgo.PermissionViewChannel == 0 {
+		return false
+	}
+	if channel, err := s.State.Channel(i.ChannelID); err == nil && channel != nil &&
+		channel.IsThread() && perms&discordgo.PermissionSendMessagesInThreads == 0 {
+		return false
+	}
+	return true
+}
+
 // EditChunks replaces a deferred reply, splitting long text across messages. A
-// private multi-message reply starts with a short intro so Discord's reply
-// snippet on the following parts stays small.
+// multi-message reply that must use follow-ups starts with a short intro so
+// Discord's reply snippet stays small. A public reply uses regular channel
+// messages when the bot can post them, so no reply snippet appears.
 func EditChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
 		return Edit(s, i, "")
 	}
-	if ephemeral && len(chunks) > 1 {
+	if len(chunks) > 1 && (ephemeral || !canPostRegular(s, i)) {
 		intro, rest := replyIntro(text)
 		if err := Edit(s, i, intro); err != nil {
 			return err
 		}
 		for _, part := range chunk(rest, 1900) {
-			if err := sendExtra(s, i, part, nil, true); err != nil {
+			if err := sendExtra(s, i, part, nil, ephemeral); err != nil {
 				return err
 			}
 		}
@@ -655,7 +690,8 @@ func EditEphemeralChunks(s *discordgo.Session, i *discordgo.InteractionCreate, t
 
 // EditMessageChunks replaces a deferred reply like EditChunks and keeps the
 // component row on the first message, so a button survives a long reply. A
-// private multi-message reply starts with a short intro on that first message.
+// multi-message reply that must use follow-ups starts with a short intro on
+// that first message.
 func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, text string, components []discordgo.MessageComponent, ephemeral bool) error {
 	chunks := chunk(text, 1900)
 	if len(chunks) == 0 {
@@ -665,14 +701,14 @@ func EditMessageChunks(s *discordgo.Session, i *discordgo.InteractionCreate, tex
 	if components == nil {
 		components = []discordgo.MessageComponent{}
 	}
-	if ephemeral && len(chunks) > 1 {
+	if len(chunks) > 1 && (ephemeral || !canPostRegular(s, i)) {
 		intro, rest := replyIntro(text)
 		first := &discordgo.WebhookEdit{Content: &intro, Components: &components}
 		if _, err := s.InteractionResponseEdit(i.Interaction, first); err != nil {
 			return err
 		}
 		for _, part := range chunk(rest, 1900) {
-			if err := sendExtra(s, i, part, nil, true); err != nil {
+			if err := sendExtra(s, i, part, nil, ephemeral); err != nil {
 				return err
 			}
 		}
