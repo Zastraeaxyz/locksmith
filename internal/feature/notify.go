@@ -350,15 +350,19 @@ func (f *Feature) currentFreeze(ctx context.Context, client *cs.Client, lock *cs
 
 // nextFreezeCheck picks when to poll a frozen lock again. A card freeze lasts
 // between two and four draw intervals, so it samples half-interval steps
-// across that window. After the window it keeps checking every fifteen minutes
-// until the freeze ends, because the subscription must outlive the freeze. A
-// keyholder freeze has no known end, so it uses the same cadence throughout.
+// across that window. After the window it checks again a minute later, because
+// ChastiSafe can report the flag briefly past the real end, and only then
+// returns to the fifteen minute cadence. A keyholder freeze has no known end,
+// so it uses the same cadence throughout.
 func (f *Feature) nextFreezeCheck(window freezeWindow, now time.Time) time.Time {
 	if window.keyholder || window.interval <= 0 || window.since.IsZero() {
 		return now.Add(15 * time.Minute)
 	}
 	if next, ok := nextFreezeCheckAt(window.since, window.interval, now); ok {
 		return next
+	}
+	if maximum := freezeGuaranteeAt(window.since, window.interval); !maximum.IsZero() && now.Before(maximum.Add(freezeRetryWindow)) {
+		return now.Add(freezeRetryDelay)
 	}
 	return now.Add(15 * time.Minute)
 }
@@ -390,31 +394,48 @@ func (f *Feature) trackFreeze(ctx context.Context, userID string, lock *cs.Loade
 }
 
 // pingFreezeWindow sends the guaranteed notification once the longest freeze
-// has passed. It keeps the freeze start, so the first draw after the freeze
-// still produces a draw notification.
+// has passed. A card freeze lasts at most four draw intervals, so a flag still
+// set at that point is a timing lag: the notice waits a minute and looks again
+// rather than claiming the freeze overran. It keeps the freeze start, so the
+// first draw after the freeze still produces a draw notification.
 func (f *Feature) pingFreezeWindow(ctx context.Context, s *discordgo.Session, userID string, lock *cs.LoadedLock, n store.Notification, now time.Time) {
 	if n.FreezePingAt.IsZero() || now.Before(n.FreezePingAt) {
 		return
 	}
+	if lock.IsFrozen() {
+		maximum := freezeGuaranteeAt(n.FreezeStartAt, time.Duration(lock.Regularity)*time.Minute)
+		if !maximum.IsZero() && now.Before(maximum.Add(freezeRetryWindow)) {
+			// ChastiSafe can keep reporting frozenByCard for a moment after the
+			// freeze ends. The next check, one minute away, decides.
+			return
+		}
+		// The flag never cleared, so the notice has nothing trustworthy to say.
+		// Drop it and keep the freeze start so the first draw is still
+		// announced.
+		f.log.Info("freeze notice dropped", "user_id", userID, "lock_id", lock.ID.String())
+		f.clearFreezePing(ctx, userID, n)
+		return
+	}
+
 	text := fmt.Sprintf(
 		"**%s** is unfrozen. I will ping you when your next draw is ready.",
 		lockName(lock),
 	)
-	if lock.IsFrozen() {
-		text = fmt.Sprintf(
-			"**%s** is frozen longer than expected. I will ping you as soon as a draw is available.",
-			lockName(lock),
-		)
-	}
 	if err := f.sendNotification(ctx, s, userID, notificationKindNotice, text, nil); err != nil {
 		f.log.Warn("sending the freeze notification", "user_id", userID, "err", err)
 		return
 	}
 	f.track("notify freeze ping")
 	f.log.Info("freeze notification sent", "user_id", userID, "lock_id", lock.ID.String())
+	f.clearFreezePing(ctx, userID, n)
+}
+
+// clearFreezePing ends the guaranteed notice while keeping the freeze start, so
+// the first draw after the freeze is still announced.
+func (f *Feature) clearFreezePing(ctx context.Context, userID string, n store.Notification) {
 	if err := f.store.RecordFreeze(ctx, store.Freeze{
 		DiscordUserID: userID,
-		LockID:        lock.ID.String(),
+		LockID:        n.LockID,
 		StartAt:       n.FreezeStartAt,
 		PingAt:        time.Time{},
 	}); err != nil {
@@ -436,7 +457,7 @@ func freezeGuaranteeAt(since time.Time, interval time.Duration) time.Time {
 	if since.IsZero() || interval <= 0 {
 		return time.Time{}
 	}
-	return since.Add(4 * interval)
+	return since.Add(time.Duration(freezeMaxFactor) * interval)
 }
 
 // nextFreezeCheckAt returns the next card-freeze poll after now. Checkpoints

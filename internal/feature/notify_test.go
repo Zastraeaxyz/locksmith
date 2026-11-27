@@ -156,6 +156,24 @@ func TestNextFreezeCheckKeepsPollingAfterTheWindow(t *testing.T) {
 	}
 }
 
+func TestNextFreezeCheckRetriesPastTheMaximum(t *testing.T) {
+	f := New(Options{})
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	window := freezeWindow{since: since, interval: time.Hour, ok: true}
+
+	now := since.Add(4*time.Hour + time.Second)
+	got := f.nextFreezeCheck(window, now)
+	if want := now.Add(freezeRetryDelay); !got.Equal(want) {
+		t.Fatalf("nextFreezeCheck = %v, want %v", got, want)
+	}
+
+	now = since.Add(4*time.Hour + freezeRetryWindow + time.Second)
+	got = f.nextFreezeCheck(window, now)
+	if want := now.Add(15 * time.Minute); !got.Equal(want) {
+		t.Fatalf("nextFreezeCheck after the retry window = %v, want %v", got, want)
+	}
+}
+
 func TestNextFreezeCheckUsesCheckpointsInsideTheWindow(t *testing.T) {
 	f := New(Options{})
 	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
@@ -278,6 +296,83 @@ func TestTrackFreezeIgnoresTheKeyholderGuarantee(t *testing.T) {
 
 	if !got.FreezeStartAt.Equal(since) || !got.FreezePingAt.IsZero() {
 		t.Fatalf("freeze state = %+v", got)
+	}
+}
+
+// watchFrozenLock stores a watch and a freeze that is due for its notice.
+func watchFrozenLock(t *testing.T, st *store.Store, since, ping time.Time) store.Notification {
+	t.Helper()
+	ctx := context.Background()
+
+	if err := st.Watch(ctx, store.Watch{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		NextCheckAt:   ping,
+	}); err != nil {
+		t.Fatalf("Watch: %v", err)
+	}
+	if err := st.RecordFreeze(ctx, store.Freeze{
+		DiscordUserID: "user-1",
+		LockID:        "lock-1",
+		StartAt:       since,
+		PingAt:        ping,
+	}); err != nil {
+		t.Fatalf("RecordFreeze: %v", err)
+	}
+	n, err := st.Notification(ctx, "user-1")
+	if err != nil || n == nil {
+		t.Fatalf("Notification: %v, %+v", err, n)
+	}
+	return *n
+}
+
+func TestPingFreezeWindowWaitsOutAStaleCardFlag(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	ping := since.Add(4 * time.Hour)
+	now := ping.Add(2 * time.Second)
+	n := watchFrozenLock(t, st, since, ping)
+
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", FrozenByCard: true, Regularity: 60}
+
+	f.pingFreezeWindow(ctx, nil, "user-1", lock, n, now)
+
+	stored, err := st.Notification(ctx, "user-1")
+	if err != nil || stored == nil {
+		t.Fatalf("Notification: %v, %+v", err, stored)
+	}
+	if !stored.FreezePingAt.Equal(ping) {
+		t.Fatalf("ping = %v, want it kept for the next check", stored.FreezePingAt)
+	}
+	if !stored.FreezeStartAt.Equal(since) {
+		t.Fatalf("start = %v, want %v", stored.FreezeStartAt, since)
+	}
+}
+
+func TestPingFreezeWindowDropsAnEndlessCardFlag(t *testing.T) {
+	ctx := context.Background()
+	st := openNotificationStore(t)
+	since := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	ping := since.Add(4 * time.Hour)
+	now := ping.Add(freezeRetryWindow + time.Second)
+	n := watchFrozenLock(t, st, since, ping)
+
+	f := &Feature{store: st, now: func() time.Time { return now }, log: slog.Default()}
+	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", FrozenByCard: true, Regularity: 60}
+
+	f.pingFreezeWindow(ctx, nil, "user-1", lock, n, now)
+
+	stored, err := st.Notification(ctx, "user-1")
+	if err != nil || stored == nil {
+		t.Fatalf("Notification: %v, %+v", err, stored)
+	}
+	if !stored.FreezePingAt.IsZero() {
+		t.Fatalf("ping = %v, want none", stored.FreezePingAt)
+	}
+	if !stored.FreezeStartAt.Equal(since) {
+		t.Fatalf("start = %v, want the start kept for the first draw", stored.FreezeStartAt)
 	}
 }
 

@@ -7,11 +7,13 @@ Notable changes to Locksmith, newest first.
 ### Changed
 
 - `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.
-- A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock, announces the first draw after the freeze, and sends one message at 4x the draw interval, the longest a freeze card holds. The message that asked members to run `/lock notify` is gone.
+- A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock and announces the first draw after the freeze. At 4x the draw interval, the longest a freeze card holds, it checks again shortly and pings only once the freeze is actually over. The message that asked members to run `/lock notify` is gone.
 - `/lock notify` accepts a frozen card lock, and Locksmith restores a missing watch at startup for members who did not turn notifications off on purpose.
 
 ### Fixed
 
+- `/lock status`, `/lock draw`, and `/lock open` read the frozen state from `GET /api-v1/loaded` on every use. A card freeze that ChastiSafe still reports past 4x the draw interval gets one more read, and the reply never claims a duration the freeze cannot have.
+- The 4x freeze message no longer says a freeze outlasted its maximum. A flag still set at that point is a timing lag, so Locksmith waits a minute and checks again before pinging.
 - A freeze's elapsed time in `/lock status` and `/lock draw` now comes from the card that froze the lock. Sticky cards are not freezes, while stun and dice cards are, so a stun freeze no longer reports the whole lock duration.
 - Check-in reminders no longer offer a **Check-in** button before the check-in is due. ChastiSafe's tolerance is a late window, not an early one, so the button now appears at the due moment and stays through the overdue period.
 

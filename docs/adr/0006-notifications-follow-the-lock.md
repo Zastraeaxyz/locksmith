@@ -19,10 +19,11 @@ Locksmith now treats a freeze as internal scheduling state:
   the lock is unfrozen.
 - The first draw after a freeze is announced even when the draw count did not
   grow, because a stun card can wipe the draws the last poll saw.
-- At 4x the draw interval, the longest a freeze card holds, the bot sends one
-  guaranteed notification for that freeze. It says whether the lock is still
-  frozen or already free, and when the next message will come. It never asks
-  the member to run anything.
+- At 4x the draw interval, the longest a freeze card holds, the bot checks the
+  lock again a minute later. ChastiSafe can report `frozenByCard` briefly past
+  the real end, so a flag still set at that point is treated as a timing lag,
+  not a freeze that overran. The bot sends one notification when the freeze is
+  actually over, and it never asks the member to run anything.
 - `/lock notify` stays as the entry point for a lock loaded in the ChastiSafe
   app, and now accepts a frozen card lock.
 - At startup the bot restores a watch for every member with a saved code and no
@@ -48,8 +49,8 @@ Locksmith now treats a freeze as internal scheduling state:
 
 - A `notifications` row stays until the member turns reminders off, logs out,
   or the lock is ready or gone. Ending a watch on a freeze is a bug.
-- Freeze state is stored in `freeze_start_at` and `freeze_ping_at`, so the 4x
-  notification survives a restart and is sent once per freeze.
+- Freeze state is stored in `freeze_start_at` and `freeze_ping_at`, so the
+  late check survives a restart and the notice is sent once per freeze.
 - A member who turned reminders off is not restored at startup. Watching a lock
   again through `/lock load` or `/lock notify` clears the opt-out.
 - An opt-out made before this change was not recorded, so that member can be
