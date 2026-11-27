@@ -394,11 +394,12 @@ func TestCheckinWindowOpen(t *testing.T) {
 		want bool
 	}{
 		{"outside tolerance", lock(39*time.Minute, 30), false},
-		{"at tolerance edge", lock(30*time.Minute, 30), true},
-		{"inside tolerance", lock(5*time.Minute, 30), true},
+		{"at tolerance edge", lock(30*time.Minute, 30), false},
+		{"inside tolerance", lock(5*time.Minute, 30), false},
 		{"outside zero tolerance", lock(5*time.Minute, 0), false},
 		{"due", lock(0, 30), true},
 		{"overdue", lock(-5*time.Minute, 30), true},
+		{"long overdue", lock(-48*time.Hour, 30), true},
 		{"no check-in schedule", &cs.LoadedLock{}, false},
 	}
 	for _, tc := range cases {
@@ -423,13 +424,15 @@ func TestCheckinRefusal(t *testing.T) {
 	text := checkinRefusal(lock, now)
 	for _, want := range []string{
 		"Short Lock",
-		"not open yet",
-		relativeTimestamp(now.Add(9 * time.Minute)),
+		"not due yet",
 		relativeTimestamp(now.Add(39 * time.Minute)),
 	} {
 		if !strings.Contains(text, want) {
 			t.Errorf("refusal missing %q:\n%s", want, text)
 		}
+	}
+	if strings.Contains(text, "opens") {
+		t.Errorf("refusal should not mention an early opening:\n%s", text)
 	}
 
 	lock.CheckInTolerance = 0
@@ -444,8 +447,12 @@ func TestCheckinRefusal(t *testing.T) {
 
 	lock.CheckInTolerance = 30
 	lock.TimeToNextCheckIn = int(2 * time.Minute / time.Second)
+	if got := checkinRefusal(lock, now); !strings.Contains(got, "not due yet") {
+		t.Errorf("early refusal = %q, want not due yet", got)
+	}
+	lock.TimeToNextCheckIn = 0
 	if got := checkinRefusal(lock, now); got != "" {
-		t.Errorf("open-window refusal = %q, want empty", got)
+		t.Errorf("due refusal = %q, want empty", got)
 	}
 }
 
@@ -464,10 +471,13 @@ func TestCheckinNotificationComponentsOnlyInsideWindow(t *testing.T) {
 	if got := checkinNotificationComponents(lock(39*time.Minute), now); got != nil {
 		t.Errorf("lead reminder components = %+v, want nil", got)
 	}
-	if got := checkinNotificationComponents(lock(5*time.Minute), now); len(got) != 1 {
-		t.Errorf("final reminder components = %d, want 1", len(got))
+	if got := checkinNotificationComponents(lock(5*time.Minute), now); got != nil {
+		t.Errorf("final reminder components = %+v, want nil", got)
 	}
 	if got := checkinNotificationComponents(lock(0), now); len(got) != 1 {
+		t.Errorf("due reminder components = %d, want 1", len(got))
+	}
+	if got := checkinNotificationComponents(lock(-5*time.Minute), now); len(got) != 1 {
 		t.Errorf("overdue reminder components = %d, want 1", len(got))
 	}
 }

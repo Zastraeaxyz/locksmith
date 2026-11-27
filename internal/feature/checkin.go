@@ -64,18 +64,14 @@ func checkinDeadline(lock *cs.LoadedLock, now time.Time) time.Time {
 }
 
 // checkinWindowOpen reports whether ChastiSafe should accept a check-in now.
-// The keyholder-defined tolerance opens the window before the due time, and an
-// overdue check-in stays available until it is recorded.
+// The window opens at the due moment and stays open while it is overdue.
+// ChastiSafe's check-in tolerance is the late window after the due time, not an
+// early one, so it never opens the window before the due moment.
 func checkinWindowOpen(lock *cs.LoadedLock, now time.Time) bool {
 	if lock == nil || lock.CheckInPeriod <= 0 {
 		return false
 	}
-	remaining := checkinIn(lock, now)
-	if remaining <= 0 {
-		return true
-	}
-	tolerance := time.Duration(lock.CheckInTolerance) * time.Minute
-	return tolerance > 0 && remaining <= tolerance
+	return checkinIn(lock, now) <= 0
 }
 
 // checkinRefusal explains that a check-in is not available yet. It returns an
@@ -92,12 +88,6 @@ func checkinRefusal(lock *cs.LoadedLock, now time.Time) string {
 	due := checkinDeadline(lock, now)
 	if due.IsZero() || !due.After(now) {
 		due = now.Add(remaining)
-	}
-
-	tolerance := time.Duration(lock.CheckInTolerance) * time.Minute
-	if opens := due.Add(-tolerance); tolerance > 0 && opens.After(now) {
-		return fmt.Sprintf("Check-in for **%s** is not open yet. It opens %s and is due %s.",
-			lockName(lock), relativeTimestamp(opens), relativeTimestamp(due))
 	}
 	return fmt.Sprintf("Check-in for **%s** is not due yet. It is due %s.",
 		lockName(lock), relativeTimestamp(due))
