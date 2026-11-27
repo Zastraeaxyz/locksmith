@@ -43,7 +43,7 @@ user-install button, and a link to this repository.
 | `/lock open [ref]` | Opens a ready lock and reveals the device code; the reply is private in servers and a normal message in DMs |
 | `/lock checkin [ref] [public]` | Records a required check-in on demand; `ref` suggests locks that need one |
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
-| `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
+| `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically, and a missing watch is restored on startup |
 | `/lock log [full] [ref] [public]` | The last draws (at least 10, condensed into icons), the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/lock deck [ref] [public]` | Shows the known deck composition as a grid of icons: revealed cards show their faces, and cards still in a hidden deck show their backs; `ref` suggests active card locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first, with lock codes in a private reply |
@@ -141,6 +141,19 @@ calling ChastiSafe too soon. Reminders are tracked per check-in cycle, so a
 member who ignores one is not spammed and a member who checks in gets the next
 cycle's reminders as usual. If a reminder never arrives, or notifications are
 off, `/lock checkin` records the same check-in on demand once it is due.
+
+A freeze does not end the watch. The bot checks a frozen card lock at
+half-interval steps from 2x to 4x the draw interval, then every fifteen minutes
+until the freeze ends. A freeze card holds for at most 4x the draw interval, so
+the bot sends one message at that mark whether the lock is still frozen or
+already free. The first draw after a freeze is announced even if the freeze
+wiped the draws the bot last saw. Nothing needs to be run and no notification
+needs to be turned back on.
+
+Locksmith restores a missing watch when it starts, so a lock loaded in the
+ChastiSafe app is picked up without `/lock notify`. Turning notifications off
+with `/lock notify enabled:false` is remembered and is never overridden by that
+startup repair.
 
 Notification DMs are temporary. When a newer draw or check-in notification
 replaces one, Locksmith deletes the older DM, and any notification DM older
