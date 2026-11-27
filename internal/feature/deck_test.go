@@ -80,77 +80,85 @@ func TestDeckTargetRefKeepsToOwnLocks(t *testing.T) {
 	}
 }
 
-func TestDeckIconsShowsFacesInOrder(t *testing.T) {
-	lock := &cs.LoadedLock{Deck: cs.Deck{cs.CardRed: 1, cs.CardGreen: 2}}
-
-	icons, hidden := deckIcons(lock)
-	if hidden {
-		t.Fatal("a visible deck should not report hidden faces")
+func TestDeckViewShowsRevealedAndVisibleDeck(t *testing.T) {
+	lock := &cs.LoadedLock{
+		Draws: cs.Draws("gr"),
+		Deck:  cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
 	}
+
+	view := buildDeckView(lock)
+	if view.revealed != 2 || view.remaining != 3 || view.masked {
+		t.Fatalf("view = %+v", view)
+	}
+
 	want := []string{
+		cardEmojiMarkup(cs.CardGreen),
+		cardEmojiMarkup(cs.CardRed),
 		cardEmojiMarkup(cs.CardGreen),
 		cardEmojiMarkup(cs.CardGreen),
 		cardEmojiMarkup(cs.CardRed),
 	}
-	if len(icons) != len(want) {
-		t.Fatalf("deckIcons = %d icons, want %d", len(icons), len(want))
+	if len(view.icons) != len(want) {
+		t.Fatalf("icons = %d, want %d", len(view.icons), len(want))
 	}
 	for idx := range want {
-		if icons[idx] != want[idx] {
-			t.Errorf("icon %d = %q, want %q", idx, icons[idx], want[idx])
+		if view.icons[idx] != want[idx] {
+			t.Errorf("icon %d = %q, want %q", idx, view.icons[idx], want[idx])
 		}
 	}
 }
 
-func TestDeckIconsUsesCardBackForUnknownCard(t *testing.T) {
-	lock := &cs.LoadedLock{Deck: cs.Deck{cs.Card("MYSTERY"): 2, cs.CardGreen: 1}}
-
-	icons, _ := deckIcons(lock)
-	want := []string{cardEmojiMarkup(cs.CardGreen), deckCardBack(), deckCardBack()}
-	if len(icons) != len(want) {
-		t.Fatalf("deckIcons = %d icons, want %d", len(icons), len(want))
-	}
-	for idx := range want {
-		if icons[idx] != want[idx] {
-			t.Errorf("icon %d = %q, want %q", idx, icons[idx], want[idx])
-		}
-	}
-}
-
-func TestDeckIconsHiddenLockNeverRevealsFaces(t *testing.T) {
+func TestDeckViewHiddenDeckShowsCardBacks(t *testing.T) {
 	lock := &cs.LoadedLock{
 		Hidden: true,
+		Draws:  cs.Draws("g"),
 		Deck:   cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
 	}
 
-	icons, hidden := deckIcons(lock)
-	if !hidden {
-		t.Fatal("a hidden lock should report hidden faces")
+	view := buildDeckView(lock)
+	if view.revealed != 1 || view.remaining != 3 || !view.masked {
+		t.Fatalf("view = %+v", view)
 	}
-	if len(icons) != 3 {
-		t.Fatalf("deckIcons = %d icons, want 3", len(icons))
+	if len(view.icons) != 4 {
+		t.Fatalf("icons = %d, want 4", len(view.icons))
 	}
-	for idx, icon := range icons {
-		if icon != deckCardBack() {
-			t.Errorf("icon %d = %q, want the card back", idx, icon)
+	if view.icons[0] != cardEmojiMarkup(cs.CardGreen) {
+		t.Errorf("revealed icon = %q, want the drawn green", view.icons[0])
+	}
+	for idx := 1; idx < len(view.icons); idx++ {
+		if view.icons[idx] != deckCardBack() {
+			t.Errorf("icon %d = %q, want the card back", idx, view.icons[idx])
 		}
 	}
 }
 
-func TestDeckIconsUsesCardCountWhenDeckIsMissing(t *testing.T) {
-	lock := &cs.LoadedLock{CardCount: 3}
+func TestDeckViewUnknownCardUsesCardBack(t *testing.T) {
+	lock := &cs.LoadedLock{Deck: cs.Deck{cs.Card("MYSTERY"): 2, cs.CardGreen: 1}}
 
-	icons, hidden := deckIcons(lock)
-	if !hidden {
-		t.Fatal("an unknown deck should report hidden faces")
+	view := buildDeckView(lock)
+	want := []string{cardEmojiMarkup(cs.CardGreen), deckCardBack(), deckCardBack()}
+	if len(view.icons) != len(want) {
+		t.Fatalf("icons = %d, want %d", len(view.icons), len(want))
 	}
-	if len(icons) != 3 {
-		t.Fatalf("deckIcons = %d icons, want 3", len(icons))
-	}
-	for idx, icon := range icons {
-		if icon != deckCardBack() {
-			t.Errorf("icon %d = %q, want the card back", idx, icon)
+	for idx := range want {
+		if view.icons[idx] != want[idx] {
+			t.Errorf("icon %d = %q, want %q", idx, view.icons[idx], want[idx])
 		}
+	}
+}
+
+func TestDeckViewUsesCardCountWhenDeckIsMissing(t *testing.T) {
+	lock := &cs.LoadedLock{CardCount: 3, Draws: cs.Draws("g")}
+
+	view := buildDeckView(lock)
+	if view.revealed != 1 || view.remaining != 3 || !view.masked {
+		t.Fatalf("view = %+v", view)
+	}
+	if len(view.icons) != 4 {
+		t.Fatalf("icons = %d, want 4", len(view.icons))
+	}
+	if view.icons[0] != cardEmojiMarkup(cs.CardGreen) {
+		t.Errorf("revealed icon = %q, want the drawn green", view.icons[0])
 	}
 }
 
@@ -177,7 +185,7 @@ func TestDeckTextHiddenEmpty(t *testing.T) {
 }
 
 func TestDeckTextWrapsRows(t *testing.T) {
-	lock := &cs.LoadedLock{ID: "l1", LockName: "Deck", Deck: cs.Deck{cs.CardGreen: 12}}
+	lock := &cs.LoadedLock{ID: "l1", LockName: "Deck", Draws: cs.Draws(strings.Repeat("g", 12))}
 
 	got := deckText(lock, "")
 	lines := strings.Split(got, "\n")
@@ -190,16 +198,26 @@ func TestDeckTextWrapsRows(t *testing.T) {
 	if count := strings.Count(lines[2], cardEmojiMarkup(cs.CardGreen)); count != 2 {
 		t.Errorf("second row has %d cards, want 2", count)
 	}
-	if !strings.Contains(lines[4], "12 cards left") {
+	if !strings.Contains(lines[4], "12 cards · 12 revealed · 0 left") {
 		t.Errorf("summary = %q", lines[4])
 	}
 }
 
-func TestDeckTextHiddenNote(t *testing.T) {
-	lock := &cs.LoadedLock{LockName: "Secret", Hidden: true, CardCount: 2}
+func TestDeckTextHiddenComposition(t *testing.T) {
+	lock := &cs.LoadedLock{
+		LockName: "Secret",
+		Hidden:   true,
+		Draws:    cs.Draws("g"),
+		Deck:     cs.Deck{cs.CardRed: 2},
+	}
 
 	got := deckText(lock, "")
-	for _, want := range []string{"Secret", "2 cards left", "faces hidden"} {
+	for _, want := range []string{
+		"Secret",
+		cardEmojiMarkup(cs.CardGreen),
+		"3 cards · 1 revealed · 2 left",
+		deckCardBack() + " = in deck",
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("deckText missing %q:\n%s", want, got)
 		}

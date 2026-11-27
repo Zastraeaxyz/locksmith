@@ -1,8 +1,8 @@
 package feature
 
-// The deck module renders a card lock's remaining deck as a grid of card
-// emoji. A revealed card shows its face; a hidden or unknown card shows the
-// :blank: card back.
+// The deck module renders a card lock's known deck composition. Cards that have
+// been drawn are revealed and show their face; cards still in a hidden deck are
+// unknown, so they show the blue :blank: card back.
 
 import (
 	"context"
@@ -20,7 +20,7 @@ import (
 // Discord's message limit, so chunking can split between rows.
 const deckRowCards = 10
 
-// deckCardOrder is the presentation order for a revealed deck. It follows
+// deckCardOrder is the presentation order for known deck cards. It follows
 // ChastiSafe's deck summary so a deck reads the same way as the app.
 var deckCardOrder = []cs.Card{
 	cs.CardGreen, cs.CardRed,
@@ -30,7 +30,17 @@ var deckCardOrder = []cs.Card{
 	cs.CardDoubleUp, cs.CardReset, cs.CardDice, cs.CardPink, cs.CardGoAgain,
 }
 
-// handleLockDeck shows the cards left in one of the caller's card locks.
+// deckView is the known composition of one deck: revealed cards in draw order,
+// then the cards still in the deck. Masked count shows how many of the
+// remaining cards rendered as card backs because their faces are unknown.
+type deckView struct {
+	icons     []string
+	revealed  int
+	remaining int
+	masked    bool
+}
+
+// handleLockDeck shows the known composition of one of the caller's card locks.
 func (f *Feature) handleLockDeck(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, opts []*discordgo.ApplicationCommandInteractionDataOption) error {
 	userID := bot.UserID(i)
 	ref, _ := stringOption(opts, "ref")
@@ -85,7 +95,7 @@ func deckTarget(locks []cs.LoadedLock, chastisafeID, ref string) (*cs.LoadedLock
 	return resolved.Running, note, nil
 }
 
-// deckText renders the lock header, the card grid, and the remaining count.
+// deckText renders the lock header, the card grid, and the composition counts.
 func deckText(lock *cs.LoadedLock, note string) string {
 	if lock == nil {
 		return "No lock selected."
@@ -98,8 +108,8 @@ func deckText(lock *cs.LoadedLock, note string) string {
 		b.WriteString("\n")
 	}
 
-	icons, hidden := deckIcons(lock)
-	if len(icons) == 0 {
+	view := buildDeckView(lock)
+	if len(view.icons) == 0 {
 		if lock.Hidden {
 			b.WriteString("The deck is hidden.")
 		} else {
@@ -111,7 +121,7 @@ func deckText(lock *cs.LoadedLock, note string) string {
 		return b.String()
 	}
 
-	for idx, icon := range icons {
+	for idx, icon := range view.icons {
 		switch {
 		case idx == 0:
 		case idx%deckRowCards == 0:
@@ -123,45 +133,84 @@ func deckText(lock *cs.LoadedLock, note string) string {
 	}
 
 	b.WriteString("\n\n")
-	fmt.Fprintf(&b, "%d card%s left", len(icons), plural(len(icons)))
-	if hidden {
-		b.WriteString(" · faces hidden")
+	fmt.Fprintf(&b, "%d card%s · %d revealed · %d left",
+		len(view.icons), plural(len(view.icons)), view.revealed, view.remaining)
+	if view.masked && view.remaining > 0 {
+		b.WriteString(" · " + deckCardBack() + " = in deck")
 	}
 	return b.String()
 }
 
-// deckIcons expands the remaining deck into one icon per card. A hidden lock
-// returns card backs for every card so the view never reveals a face. A nil
-// deck with a card count also falls back to card backs, because the faces are
-// unknown. A card value with no emoji mapping uses the card back too.
-func deckIcons(lock *cs.LoadedLock) (icons []string, hidden bool) {
+// buildDeckView collects the known deck composition. Drawn cards are revealed,
+// so they show their faces in draw order. A visible deck also shows the faces
+// of its remaining cards. A hidden deck shows its remaining cards as card
+// backs, because their faces are unknown until they are drawn.
+func buildDeckView(lock *cs.LoadedLock) deckView {
+	var view deckView
 	if lock == nil {
-		return nil, false
+		return view
 	}
 	back := deckCardBack()
-	if lock.Hidden {
-		count, _ := cardsRemaining(lock)
-		if count == 0 {
-			count = lock.CardsRemaining()
-		}
-		return repeatIcon(back, count), true
-	}
-	if lock.Deck == nil {
-		if count, ok := cardsRemaining(lock); ok {
-			return repeatIcon(back, count), true
-		}
-		return nil, false
+
+	for _, card := range lock.Draws.Cards() {
+		view.icons = append(view.icons, deckCardIcon(card, back))
+		view.revealed++
 	}
 
-	icons = make([]string, 0, lock.Deck.Total())
-	seen := make(map[cs.Card]bool, len(lock.Deck))
+	if lock.Hidden {
+		view.remaining, view.masked = deckRemainingCount(lock)
+		view.icons = append(view.icons, repeatIcon(back, view.remaining)...)
+		return view
+	}
+
+	if lock.Deck != nil {
+		remaining, masked := deckMapIcons(lock.Deck, back)
+		view.icons = append(view.icons, remaining...)
+		view.remaining = len(remaining)
+		view.masked = masked
+		return view
+	}
+
+	view.remaining, view.masked = deckRemainingCount(lock)
+	view.icons = append(view.icons, repeatIcon(back, view.remaining)...)
+	return view
+}
+
+// deckRemainingCount returns the number of cards left and whether their faces
+// should be shown as card backs.
+func deckRemainingCount(lock *cs.LoadedLock) (int, bool) {
+	if count, ok := cardsRemaining(lock); ok {
+		if count == 0 {
+			if fallback := lock.CardsRemaining(); fallback > 0 {
+				count = fallback
+			}
+		}
+		return count, true
+	}
+	return 0, false
+}
+
+// deckMapIcons expands a visible deck into one face icon per card and reports
+// whether any card had no face to show.
+func deckMapIcons(deck cs.Deck, back string) ([]string, bool) {
+	icons := make([]string, 0, deck.Total())
+	masked := false
+	icon := func(card cs.Card) string {
+		if markup := cardEmojiMarkup(card); markup != "" {
+			return markup
+		}
+		masked = true
+		return back
+	}
+
+	seen := make(map[cs.Card]bool, len(deck))
 	for _, card := range deckCardOrder {
 		seen[card] = true
-		icons = append(icons, repeatIcon(deckCardIcon(card, back), lock.Deck.Count(card))...)
+		icons = append(icons, repeatIcon(icon(card), deck.Count(card))...)
 	}
 
-	extra := make([]cs.Card, 0, len(lock.Deck))
-	for card, count := range lock.Deck {
+	extra := make([]cs.Card, 0, len(deck))
+	for card, count := range deck {
 		if seen[card] || count <= 0 {
 			continue
 		}
@@ -169,9 +218,9 @@ func deckIcons(lock *cs.LoadedLock) (icons []string, hidden bool) {
 	}
 	sort.Slice(extra, func(a, b int) bool { return string(extra[a]) < string(extra[b]) })
 	for _, card := range extra {
-		icons = append(icons, repeatIcon(deckCardIcon(card, back), lock.Deck.Count(card))...)
+		icons = append(icons, repeatIcon(icon(card), deck.Count(card))...)
 	}
-	return icons, false
+	return icons, masked
 }
 
 // deckCardIcon returns a card's face, or the card back when it has no emoji.

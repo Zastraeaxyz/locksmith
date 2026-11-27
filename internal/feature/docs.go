@@ -107,7 +107,7 @@ var docsPages = []docsPage{
 			"• **Stop** closes the board. The lock keeps running.",
 			"",
 			"**Viewing the deck**",
-			"Run `/lock deck` to see the cards left as icons. `ref:` picks another active card lock, and `public:true` posts the grid in the channel. A hidden lock shows card backs instead of faces.",
+			"Run `/lock deck` to see the deck composition. Drawn cards show their revealed faces, and cards still in a hidden deck show card backs. `ref:` picks another active card lock, and `public:true` posts the grid in the channel.",
 			"",
 			"**When it is ready**",
 			"• **Open** shows the code privately in a server.",

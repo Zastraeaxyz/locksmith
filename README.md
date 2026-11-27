@@ -45,7 +45,7 @@ user-install button, and a link to this repository.
 | `/lock share ref:<template>` | Keyholders: posts a lock template with Load with Locksmith, Simulation (card locks), and Open in ChastiSafe buttons; `ref` suggests your own templates |
 | `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically |
 | `/lock log [full] [ref] [public]` | The last draws (at least 10, condensed into icons), the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
-| `/lock deck [ref] [public]` | Shows the cards left in a card lock's deck as a grid of icons; a hidden or unknown card shows its back, and `ref` suggests active card locks |
+| `/lock deck [ref] [public]` | Shows the known deck composition as a grid of icons: revealed cards show their faces, and cards still in a hidden deck show their backs; `ref` suggests active card locks |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first, with lock codes in a private reply |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |
