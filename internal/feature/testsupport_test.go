@@ -57,11 +57,15 @@ type fakeResponse struct {
 type fakeAPI struct {
 	mu     sync.Mutex
 	routes map[string]fakeResponse
+	queues map[string][]fakeResponse
 	calls  []discordCall
 }
 
 func newFakeAPI() *fakeAPI {
-	return &fakeAPI{routes: make(map[string]fakeResponse)}
+	return &fakeAPI{
+		routes: make(map[string]fakeResponse),
+		queues: make(map[string][]fakeResponse),
+	}
 }
 
 // serve registers a response for one method and absolute URL. A zero status
@@ -69,22 +73,54 @@ func newFakeAPI() *fakeAPI {
 func (a *fakeAPI) serve(t *testing.T, method, rawURL string, status int, fixture string) {
 	t.Helper()
 
-	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		t.Fatalf("parsing fake route %q: %v", rawURL, err)
-	}
-	if status == 0 {
-		status = http.StatusOK
-	}
-
 	var body []byte
 	if fixture != "" {
 		body = readFixture(t, fixture)
 	}
+	a.serveBody(t, method, rawURL, status, body)
+}
+
+// serveBody registers an inline response for one method and absolute URL.
+func (a *fakeAPI) serveBody(t *testing.T, method, rawURL string, status int, body []byte) {
+	t.Helper()
+
+	key := a.routeKey(t, method, rawURL)
+	if status == 0 {
+		status = http.StatusOK
+	}
 
 	a.mu.Lock()
-	a.routes[method+" "+parsed.Host+parsed.Path] = fakeResponse{status: status, body: body}
+	a.routes[key] = fakeResponse{status: status, body: body}
 	a.mu.Unlock()
+}
+
+// serveSequence serves the bodies in order, one per request. Once the sequence
+// is empty, later requests use the route registered with serve or serveBody.
+func (a *fakeAPI) serveSequence(t *testing.T, method, rawURL string, status int, bodies ...[]byte) {
+	t.Helper()
+
+	key := a.routeKey(t, method, rawURL)
+	if status == 0 {
+		status = http.StatusOK
+	}
+	responses := make([]fakeResponse, 0, len(bodies))
+	for _, body := range bodies {
+		responses = append(responses, fakeResponse{status: status, body: body})
+	}
+
+	a.mu.Lock()
+	a.queues[key] = responses
+	a.mu.Unlock()
+}
+
+func (a *fakeAPI) routeKey(t *testing.T, method, rawURL string) string {
+	t.Helper()
+
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parsing fake route %q: %v", rawURL, err)
+	}
+	return method + " " + parsed.Host + parsed.Path
 }
 
 func (a *fakeAPI) resetCalls() {
@@ -114,7 +150,14 @@ func (a *fakeAPI) RoundTrip(req *http.Request) (*http.Response, error) {
 	key := req.Method + " " + req.URL.Host + req.URL.Path
 
 	a.mu.Lock()
-	response, ok := a.routes[key]
+	var response fakeResponse
+	var ok bool
+	if queued := a.queues[key]; len(queued) > 0 {
+		response, ok = queued[0], true
+		a.queues[key] = queued[1:]
+	} else {
+		response, ok = a.routes[key]
+	}
 	if req.URL.Host == "discord.com" {
 		call := discordCall{Method: req.Method, Path: req.URL.RequestURI()}
 		if len(body) > 0 {

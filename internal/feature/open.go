@@ -40,8 +40,10 @@ func (f *Feature) handleLockOpen(ctx context.Context, s *discordgo.Session, i *d
 	if err != nil {
 		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
+	now := f.now()
+	locks, _ = f.freshLocks(ctx, client, locks, now)
 
-	lock, note, err := pickOpenLock(ref, ownLocks(locks, cred.ChastiSafeID), f.now())
+	lock, note, err := pickOpenLock(ref, ownLocks(locks, cred.ChastiSafeID), now)
 	if err != nil {
 		return bot.EditChunks(s, i, err.Error(), !public)
 	}
@@ -50,7 +52,7 @@ func (f *Feature) handleLockOpen(ctx context.Context, s *discordgo.Session, i *d
 	if err != nil {
 		if errors.Is(err, cs.ErrLockNotReady) {
 			text := "That lock is not ready to open yet."
-			if notReady := openNotReadyError(lock, f.now()); notReady != nil {
+			if notReady := openNotReadyError(lock, now); notReady != nil {
 				text = notReady.Error()
 			}
 			return bot.EditChunks(s, i, text, !public)

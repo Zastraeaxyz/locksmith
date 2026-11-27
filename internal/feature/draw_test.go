@@ -1,7 +1,6 @@
 package feature
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -277,7 +276,7 @@ func TestDrawBlockedMessage(t *testing.T) {
 		ID: "f", LockName: "Frozen Lock", Type: "card",
 		FrozenByCard: true, Regularity: 60,
 	}
-	got := drawBlockedMessage(frozen, map[cs.ID]time.Time{"f": now.Add(-time.Hour)}, now)
+	got := drawBlockedMessage(frozen, map[cs.ID]freezeState{"f": {since: now.Add(-time.Hour)}}, now)
 	for _, want := range []string{
 		"Frozen Lock",
 		"frozen for 1hr",
@@ -301,7 +300,7 @@ func TestDrawBlockedMessage(t *testing.T) {
 		ID: "k", LockName: "Keyholder Lock", Type: "card",
 		FrozenByKeyholder: true, Regularity: 60,
 	}
-	got = drawBlockedMessage(keyholder, map[cs.ID]time.Time{"k": now.Add(-time.Hour)}, now)
+	got = drawBlockedMessage(keyholder, map[cs.ID]freezeState{"k": {since: now.Add(-time.Hour)}}, now)
 	if strings.Contains(got, "A freeze lasts") {
 		t.Errorf("keyholder freeze should not claim a maximum:\n%s", got)
 	}
@@ -407,6 +406,29 @@ func TestResetConfirmed(t *testing.T) {
 	}
 }
 
+func TestDrawBlockedMessagePastMaximum(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{
+		ID: "f", LockName: "Frozen Lock", Type: "card",
+		FrozenByCard: true, Regularity: 60,
+	}
+
+	got := drawBlockedMessage(lock, map[cs.ID]freezeState{
+		"f": {since: now.Add(-5 * time.Hour), pastMaximum: true},
+	}, now)
+	if strings.Contains(got, "frozen for") {
+		t.Errorf("stale freeze should not claim a duration:\n%s", got)
+	}
+	if strings.Contains(got, "A freeze lasts") {
+		t.Errorf("stale freeze should not repeat the maximum:\n%s", got)
+	}
+	for _, want := range []string{"still reports", "should clear within a minute"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("stale freeze message missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestReadyCardLockSkipsFrozen(t *testing.T) {
 	locks := []cs.LoadedLock{
 		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me"},
@@ -426,7 +448,7 @@ func TestResolveBoardLockPinsNotificationLock(t *testing.T) {
 		{ID: "other", LockName: "Other", Type: "card", Picks: 2, LockeeID: "me", LoadTime: cs.Time{Time: now}},
 	}
 
-	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "notified")
+	lock, refusal := f.resolveBoardLock(locks, nil, "me", "notified", now)
 	if lock == nil || lock.ID != "notified" {
 		t.Fatalf("lock = %+v, refusal = %q, want the notified lock", lock, refusal)
 	}
@@ -452,7 +474,7 @@ func TestResolveBoardLockRefusals(t *testing.T) {
 		"waiting": "No draws available",
 	}
 	for lockID, want := range cases {
-		lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", cs.ID(lockID))
+		lock, refusal := f.resolveBoardLock(locks, nil, "me", cs.ID(lockID), now)
 		if lock != nil {
 			t.Errorf("%s: lock = %+v, want nil", lockID, lock)
 		}
@@ -461,7 +483,7 @@ func TestResolveBoardLockRefusals(t *testing.T) {
 		}
 	}
 
-	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "ready")
+	lock, refusal := f.resolveBoardLock(locks, nil, "me", "ready", now)
 	if lock == nil || lock.ID != "ready" || refusal != "" {
 		t.Fatalf("ready lock = %+v, refusal = %q", lock, refusal)
 	}
@@ -475,7 +497,7 @@ func TestResolveBoardLockWithoutIDPrefersDrawable(t *testing.T) {
 		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me", LoadTime: cs.Time{Time: now}},
 	}
 
-	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	lock, refusal := f.resolveBoardLock(locks, nil, "me", "", now)
 	if lock == nil || lock.ID != "drawable" || refusal != "" {
 		t.Fatalf("lock = %+v, refusal = %q, want the drawable lock", lock, refusal)
 	}
@@ -488,7 +510,7 @@ func TestResolveBoardLockWithoutIDExplainsNoDraws(t *testing.T) {
 		{ID: "waiting", LockName: "Waiting", Type: "card", Picks: 0, Wait: 300, LockeeID: "me", LoadTime: cs.Time{Time: now}},
 	}
 
-	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	lock, refusal := f.resolveBoardLock(locks, nil, "me", "", now)
 	if lock != nil {
 		t.Fatalf("lock = %+v, want nil", lock)
 	}
@@ -507,7 +529,7 @@ func TestResolveBoardLockWithoutIDPrefersReadyOverWaiting(t *testing.T) {
 		{ID: "ready", LockName: "Ready", Type: "card", ReadyToUnlock: true, LockeeID: "me", LoadTime: cs.Time{Time: now.Add(-time.Hour)}},
 	}
 
-	lock, refusal := f.resolveBoardLock(context.Background(), nil, locks, "me", "")
+	lock, refusal := f.resolveBoardLock(locks, nil, "me", "", now)
 	if lock == nil || lock.ID != "ready" || refusal != "" {
 		t.Fatalf("lock = %+v, refusal = %q, want the ready lock", lock, refusal)
 	}

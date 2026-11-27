@@ -92,6 +92,10 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, nil, true, note)
 	}
 
+	// Draw state always comes from the API. A card freeze past its maximum is
+	// read once more, so a freeze that has just ended does not stop the draw.
+	now := f.now()
+	locks, freeze := f.freshLocks(ctx, client, locks, now)
 	lock, note, ok := f.boardLock(locks, session)
 	if !ok {
 		return f.renderBoard(s, i, session, nil, false, note)
@@ -103,11 +107,11 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, lock, true, "The lock is ready to unlock.")
 	case lock.IsFrozen():
 		f.deleteSession(session.id)
-		return f.renderBoard(s, i, session, lock, false, "The lock is frozen. Drawing stopped.")
+		return f.renderBoard(s, i, session, lock, false, drawBlockedMessage(lock, freeze, now))
 	case lock.DrawsAvailable() == 0:
 		// The schedule has not accrued the next draw yet. Keep the board open
 		// with its controls so the member can retry, and say when draws open.
-		return f.renderBoard(s, i, session, lock, true, drawBlockedMessage(lock, nil, f.now()))
+		return f.renderBoard(s, i, session, lock, true, drawBlockedMessage(lock, nil, now))
 	}
 
 	result, updated, err := drawPick(ctx, client, session, lock, bot.UserID(i) != session.ownerID)
@@ -133,16 +137,23 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 }
 
 // drawPick takes one draw and records it on the session, returning the pick
-// result and the updated lock.
+// result and the updated lock. The lock is read back from the API after the
+// pick, so the board never renders the pre-pick state when the pick response
+// omits its lock.
 func drawPick(ctx context.Context, client *cs.Client, session *drawSession, lock *cs.LoadedLock, byKeyholder bool) (*cs.PickResult, *cs.LoadedLock, error) {
 	result, err := client.Pick(ctx, lock.ID)
 	if err != nil {
 		return nil, lock, err
 	}
 
-	updated := lock
-	if result.Lock != nil {
-		updated = result.Lock
+	updated := result.Lock
+	if locks, err := client.Loaded(ctx); err == nil {
+		if fresh := findLockByID(locks, lock.ID); fresh != nil {
+			updated = fresh
+		}
+	}
+	if updated == nil {
+		updated = lock
 	}
 	session.setLock(updated)
 	session.add(drawEntry{
@@ -266,6 +277,7 @@ func (f *Feature) drawOpen(ctx context.Context, s *discordgo.Session, i *discord
 	if err != nil {
 		return f.renderBoard(s, i, session, session.currentLock(), true, f.apiFailure(ctx, session.ownerID, err))
 	}
+	locks, _ = f.freshLocks(ctx, client, locks, f.now())
 
 	lock, note, ok := f.boardLock(locks, session)
 	if !ok {
@@ -320,6 +332,7 @@ func (f *Feature) drawGreenBack(ctx context.Context, s *discordgo.Session, i *di
 		return f.renderBoard(s, i, session, session.currentLock(), true,
 			"Put the last green back in the deck, but I could not refresh the lock.")
 	}
+	locks, _ = f.freshLocks(ctx, client, locks, f.now())
 	lock, note, ok := f.boardLock(locks, session)
 	if !ok {
 		return f.renderBoard(s, i, session, nil, false, note)
@@ -353,6 +366,7 @@ func (f *Feature) drawAskKeyholder(ctx context.Context, s *discordgo.Session, i 
 
 	lock := session.currentLock()
 	if locks, err := client.Loaded(ctx); err == nil {
+		locks, _ = f.freshLocks(ctx, client, locks, f.now())
 		if updated := findLockByID(locks, session.lockID); updated != nil {
 			lock = updated
 			session.setLock(updated)
@@ -434,6 +448,7 @@ func (f *Feature) handleResetModal(ctx context.Context, s *discordgo.Session, i 
 	if err != nil {
 		return sendEphemeral(s, i, "The lock was reset, but I could not refresh the board.")
 	}
+	locks, _ = f.freshLocks(ctx, client, locks, f.now())
 	lock := findLockByID(locks, session.lockID)
 	if lock == nil {
 		f.deleteSession(session.id)

@@ -383,14 +383,17 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 
-	views := ownLockViews(locks, cred.ChastiSafeID)
+	// Status always reads the live lock state. When the API still reports a
+	// card freeze past its maximum, freshLocks asks once more so a freeze that
+	// has just ended is not shown as active.
+	now := f.now()
+	own, freeze := f.freshLocks(ctx, client, ownLocks(locks, cred.ChastiSafeID), now)
+	views := ownLockViews(own, cred.ChastiSafeID)
 	if len(views) == 0 {
 		return bot.EditChunks(s, i, "You have no active ChastiSafe locks.", !public)
 	}
 
-	own := ownLocks(locks, cred.ChastiSafeID)
-	freeze := f.freezeTimes(ctx, client, own)
-	embeds := renderStatusEmbeds(views, cred.ChastiSafeID, freeze, f.now())
+	embeds := renderStatusEmbeds(views, cred.ChastiSafeID, freeze, now)
 	return bot.EditEmbeds(s, i, embeds, !public)
 }
 
@@ -434,6 +437,7 @@ func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i 
 	}
 
 	now := f.now()
+	locks, _ = f.freshLocks(ctx, client, locks, now)
 	lock := activeCardLock(locks, cred.ChastiSafeID)
 	checkinOnly := false
 	if lock == nil {

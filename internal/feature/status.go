@@ -16,16 +16,16 @@ type statusOptions struct {
 	showType    bool
 	showRole    bool
 	showPurpose bool
-	freezeSince map[cs.ID]time.Time
+	freeze      map[cs.ID]freezeState
 	now         time.Time
 }
 
 // renderStatusEmbeds renders one embed per active lock, coloured by its state.
-func renderStatusEmbeds(views []cs.LockView, viewerID string, freezeSince map[cs.ID]time.Time, now time.Time) []*discordgo.MessageEmbed {
+func renderStatusEmbeds(views []cs.LockView, viewerID string, freeze map[cs.ID]freezeState, now time.Time) []*discordgo.MessageEmbed {
 	opts := statusOptions{
-		viewerID:    viewerID,
-		freezeSince: freezeSince,
-		now:         now,
+		viewerID: viewerID,
+		freeze:   freeze,
+		now:      now,
 	}
 	opts.showType, opts.showRole, opts.showPurpose = varyingFields(views)
 
@@ -110,10 +110,14 @@ func renderLockStatusBody(lock *cs.LoadedLock, role cs.LockRole, opts statusOpti
 	b.WriteString(stateLine(lock, opts))
 	b.WriteString("\n")
 
-	if line := freezeMaximumText(lock); line != "" {
+	state := opts.freeze[lock.ID]
+	if line := freezeMaximumText(lock); line != "" && !state.pastMaximum {
 		b.WriteString(":hourglass: Freeze lasts ")
 		b.WriteString(line)
 		b.WriteString("\n")
+	}
+	if state.pastMaximum {
+		b.WriteString(":hourglass: ChastiSafe still reports this freeze after its maximum. It should clear within a minute.\n")
 	}
 
 	if line := peopleLine(lock, opts.viewerID); line != "" {
@@ -161,9 +165,15 @@ func stateLine(lock *cs.LoadedLock, opts statusOptions) string {
 	parts := make([]string, 0, 3)
 	switch {
 	case lock.IsFrozen():
-		if since, ok := opts.freezeSince[lock.ID]; ok && !since.IsZero() {
-			parts = append(parts, ":ice_cube: Frozen for "+elapsedLabel(opts.now.Sub(since)))
-		} else {
+		state := opts.freeze[lock.ID]
+		switch {
+		case state.pastMaximum:
+			// The freeze cannot still be running. Say it is frozen because the
+			// API says so, but never claim a duration past the maximum.
+			parts = append(parts, ":ice_cube: Frozen")
+		case !state.since.IsZero():
+			parts = append(parts, ":ice_cube: Frozen for "+elapsedLabel(opts.now.Sub(state.since)))
+		default:
 			parts = append(parts, ":ice_cube: Frozen")
 		}
 	case lock.IsReady():
@@ -187,7 +197,7 @@ func freezeMaximumText(lock *cs.LoadedLock) string {
 	if lock == nil || !lock.FrozenByCard || lock.FrozenByKeyholder || lock.Regularity <= 0 {
 		return ""
 	}
-	maximum := elapsedLabel(time.Duration(4*lock.Regularity) * time.Minute)
+	maximum := elapsedLabel(time.Duration(freezeMaxFactor*lock.Regularity) * time.Minute)
 	interval := elapsedLabel(time.Duration(lock.Regularity) * time.Minute)
 	return fmt.Sprintf("up to %s (4x the %s draw interval)", maximum, interval)
 }
@@ -312,36 +322,6 @@ func purposeLabel(purpose cs.Purpose) string {
 		return value
 	}
 	return "unknown"
-}
-
-// freezeTimes finds the current freeze start for each frozen lock. ChastiSafe
-// does not return a freeze timestamp on the lock, so the lock log is the
-// source. A keyholder freeze is event type 2; a freeze card is a pick event
-// with a freeze card.
-func (f *Feature) freezeTimes(ctx context.Context, client *cs.Client, locks []cs.LoadedLock) map[cs.ID]time.Time {
-	times := make(map[cs.ID]time.Time)
-	for idx := range locks {
-		lock := &locks[idx]
-		if !lock.IsFrozen() {
-			continue
-		}
-		entries, err := f.freezeLog(ctx, client, lock)
-		if err != nil {
-			f.log.Warn("loading freeze history", "lock_id", lock.ID.String(), "err", err)
-			continue
-		}
-		if since, ok := freezeStartFor(lock, entries); ok {
-			times[lock.ID] = since
-		} else {
-			f.log.Debug("freeze start not found",
-				"lock_id", lock.ID.String(),
-				"frozen_by_card", lock.FrozenByCard,
-				"frozen_by_keyholder", lock.FrozenByKeyholder,
-				"entries", len(entries),
-			)
-		}
-	}
-	return times
 }
 
 // freezeLog reads enough of the lock log to locate the current freeze. It

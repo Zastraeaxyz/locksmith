@@ -134,7 +134,7 @@ func TestStatusFrozenSince(t *testing.T) {
 	text := statusText(renderStatusEmbeds(
 		[]cs.LockView{{Lock: lock, Role: cs.RoleLockee}},
 		"viewer",
-		map[cs.ID]time.Time{lock.ID: since},
+		map[cs.ID]freezeState{lock.ID: {since: since}},
 		now,
 	))
 
@@ -184,6 +184,57 @@ func TestStatusFreezeMaximum(t *testing.T) {
 	text = statusText(renderStatusEmbeds([]cs.LockView{{Lock: lock, Role: cs.RoleLockee}}, "viewer", nil, now))
 	if strings.Contains(text, "Freeze lasts") {
 		t.Errorf("status without a draw interval should not guess a maximum:\n%s", text)
+	}
+}
+
+func TestStatusFrozenPastMaximum(t *testing.T) {
+	now := statusTestNow()
+	lock := statusTestLock("a", "Lock A", now)
+	lock.FrozenByCard = true
+	lock.Regularity = 60
+	since := now.Add(-5 * time.Hour)
+
+	text := statusText(renderStatusEmbeds(
+		[]cs.LockView{{Lock: lock, Role: cs.RoleLockee}},
+		"viewer",
+		map[cs.ID]freezeState{lock.ID: {since: since, pastMaximum: true}},
+		now,
+	))
+
+	if !strings.Contains(text, ":ice_cube: Frozen") {
+		t.Errorf("status missing frozen state:\n%s", text)
+	}
+	if !strings.Contains(text, "still reports this freeze after its maximum") {
+		t.Errorf("status missing the stale freeze note:\n%s", text)
+	}
+	for _, bad := range []string{"Frozen for", "Freeze lasts"} {
+		if strings.Contains(text, bad) {
+			t.Errorf("status should omit %q past the maximum:\n%s", bad, text)
+		}
+	}
+}
+
+func TestStatusFrozenWithinMaximum(t *testing.T) {
+	now := statusTestNow()
+	lock := statusTestLock("a", "Lock A", now)
+	lock.FrozenByCard = true
+	lock.Regularity = 60
+	since := now.Add(-time.Hour)
+
+	text := statusText(renderStatusEmbeds(
+		[]cs.LockView{{Lock: lock, Role: cs.RoleLockee}},
+		"viewer",
+		map[cs.ID]freezeState{lock.ID: {since: since}},
+		now,
+	))
+
+	for _, want := range []string{":ice_cube: Frozen for 1hr", "Freeze lasts up to 4hrs"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("status missing %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "still reports") {
+		t.Errorf("fresh freeze should not show the stale note:\n%s", text)
 	}
 }
 

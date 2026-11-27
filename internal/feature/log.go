@@ -71,7 +71,7 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 	if err != nil {
 		return bot.Edit(s, i, f.apiFailure(ctx, userID, err))
 	}
-	own := ownLocks(locks, cred.ChastiSafeID)
+	own, freeze := f.freshLocks(ctx, client, ownLocks(locks, cred.ChastiSafeID), f.now())
 
 	recent, err := client.Recent(ctx)
 	if err != nil {
@@ -84,7 +84,7 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 		return bot.Edit(s, i, err.Error())
 	}
 
-	header := f.logHeader(ctx, client, target, cred.ChastiSafeID)
+	header := logHeader(target, freeze, cred.ChastiSafeID, f.now())
 	view, err := f.fetchLog(ctx, client, target.id(), full)
 	if err != nil {
 		f.log.Warn("loading lock log", "user_id", userID, "lock_id", target.id().String(), "err", err)
@@ -97,20 +97,16 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 
 // logHeader renders the compact status block for a running lock, or the
 // completed-lock stats for a previous lock.
-func (f *Feature) logHeader(ctx context.Context, client *cs.Client, target *logTarget, viewerID string) string {
+func logHeader(target *logTarget, freeze map[cs.ID]freezeState, viewerID string, now time.Time) string {
 	switch {
 	case target == nil:
 		return ""
 	case target.running != nil:
-		freeze := map[cs.ID]time.Time{}
-		if target.running.IsFrozen() {
-			freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target.running})
-		}
 		view := cs.LockView{Lock: *target.running, Role: cs.RoleLockee}
 		return renderLockStatus(&view, statusOptions{
-			viewerID:    viewerID,
-			freezeSince: freeze,
-			now:         f.now(),
+			viewerID: viewerID,
+			freeze:   freeze,
+			now:      now,
 		})
 	case target.previous != nil:
 		return previousText(target.previous)

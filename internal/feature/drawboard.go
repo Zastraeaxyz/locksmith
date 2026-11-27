@@ -170,7 +170,13 @@ func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *di
 		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
 	}
 
-	lock, refusal := f.resolveBoardLock(ctx, client, locks, cred.ChastiSafeID, lockID)
+	// The board always starts from live lock state. A card freeze that is past
+	// its maximum gets one more API read, so a freeze that has just ended does
+	// not open a board that refuses to draw.
+	now := f.now()
+	locks, freeze := f.freshLocks(ctx, client, locks, now)
+
+	lock, refusal := f.resolveBoardLock(locks, freeze, cred.ChastiSafeID, lockID, now)
 	if lock == nil {
 		return f.replyDrawPrivate(s, i, refusal)
 	}
@@ -208,9 +214,7 @@ func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *di
 // ready one, so the ready actions stay reachable. A card lock whose next draw
 // has not accrued yet is refused with the next draw time, not opened as an
 // empty board.
-func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks []cs.LoadedLock, chastisafeID string, lockID cs.ID) (*cs.LoadedLock, string) {
-	now := f.now()
-
+func (f *Feature) resolveBoardLock(locks []cs.LoadedLock, freeze map[cs.ID]freezeState, chastisafeID string, lockID cs.ID, now time.Time) (*cs.LoadedLock, string) {
 	if lockID != "" {
 		lock := findLockByID(locks, lockID)
 		switch {
@@ -221,7 +225,6 @@ func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks
 		case !lock.IsCardLock():
 			return nil, fmt.Sprintf("**%s** is not a card lock.", lockName(lock))
 		case lock.IsFrozen():
-			freeze := f.freezeTimes(ctx, client, []cs.LoadedLock{*lock})
 			return nil, drawBlockedMessage(lock, freeze, now)
 		case !lock.IsReady() && lock.DrawsAvailable() == 0:
 			return nil, drawBlockedMessage(lock, nil, now)
@@ -246,10 +249,6 @@ func (f *Feature) resolveBoardLock(ctx context.Context, client *cs.Client, locks
 	}
 
 	target := drawRefusalTarget(locks, chastisafeID)
-	freeze := map[cs.ID]time.Time{}
-	if target != nil && target.IsFrozen() {
-		freeze = f.freezeTimes(ctx, client, []cs.LoadedLock{*target})
-	}
 	return nil, drawBlockedMessage(target, freeze, now)
 }
 
@@ -264,16 +263,20 @@ func (f *Feature) replyDrawPrivate(s *discordgo.Session, i *discordgo.Interactio
 
 // drawBlockedMessage explains why a card lock cannot be drawn. An empty
 // message means the lock is drawable.
-func drawBlockedMessage(lock *cs.LoadedLock, freezeSince map[cs.ID]time.Time, now time.Time) string {
+func drawBlockedMessage(lock *cs.LoadedLock, freeze map[cs.ID]freezeState, now time.Time) string {
 	if lock == nil {
 		return "You have no active card lock to draw from."
 	}
 	name := lockName(lock)
 	switch {
 	case lock.IsFrozen():
+		state := freeze[lock.ID]
+		if state.pastMaximum {
+			return fmt.Sprintf("ChastiSafe still reports **%s** frozen after the longest a freeze can hold. It should clear within a minute, so try again shortly.", name)
+		}
 		message := fmt.Sprintf("**%s** is frozen.", name)
-		if since, ok := freezeSince[lock.ID]; ok && !since.IsZero() {
-			message = fmt.Sprintf("**%s** is frozen for %s.", name, elapsedLabel(now.Sub(since)))
+		if !state.since.IsZero() {
+			message = fmt.Sprintf("**%s** is frozen for %s.", name, elapsedLabel(now.Sub(state.since)))
 		}
 		if window := freezeMaximumText(lock); window != "" {
 			message += " A freeze lasts " + window + "."

@@ -1,7 +1,6 @@
 package feature
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -265,9 +264,7 @@ func TestLogOutputHidesHygieneCode(t *testing.T) {
 func TestLogHeaderUsesCompactStatus(t *testing.T) {
 	now := statusTestNow()
 	lock := statusTestLock("a", "Lock A", now)
-	f := &Feature{now: func() time.Time { return now }}
-
-	header := f.logHeader(context.Background(), nil, &logTarget{running: &lock}, "viewer")
+	header := logHeader(&logTarget{running: &lock}, nil, "viewer", now)
 	for _, want := range []string{
 		":locked: Locked",
 		":key: Keyholder: keyholder#0",
