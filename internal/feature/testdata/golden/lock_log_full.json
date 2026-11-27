@@ -1,0 +1,23 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v9/interactions/1000000000000000000/interaction-token/callback",
+    "body": {
+      "type": 5,
+      "data": {
+        "tts": false,
+        "content": "",
+        "components": null,
+        "embeds": null,
+        "flags": 64
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
+    "body": {
+      "content": "**Progressive 2** (ID `731d2fb0-92f1-3a27-adf2-5268501f80bf`)\n:locked: Locked · locked for 3d 3hrs\n:key: Keyholder: SPC#0001\n:flower_playing_cards: 3 cards · 99 greens needed · 1/1 draws\n:hourglass: Next draw \u003ct:1795781400:R\u003e\n:alarm_clock: Check-in: every 1 hour · next \u003ct:1795782600:R\u003e\n:shower: Hygiene \u003ct:1795788000:R\u003e\n\n**Full log**\n• \u003ct:1795688400:t\u003e \u003c:red:900000000000000002\u003e\n• \u003ct:1795687800:t\u003e :key:\u003c:green:900000000000000001\u003e\n• \u003ct:1795687200:t\u003e Keyholder loaded the lock\n• \u003ct:1795636800:t\u003e System hygiene unlocked (code hidden)"
+    }
+  }
+]

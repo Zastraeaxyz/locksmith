@@ -1,0 +1,35 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v9/interactions/1000000000000000000/interaction-token/callback",
+    "body": {
+      "type": 5,
+      "data": {
+        "tts": false,
+        "content": "",
+        "components": null,
+        "embeds": null,
+        "flags": 64
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
+    "body": {
+      "components": [],
+      "embeds": [
+        {
+          "title": "Progressive 2",
+          "description": "ID `731d2fb0-92f1-3a27-adf2-5268501f80bf`\nType: card\n:locked: Locked · locked for 3d 3hrs\n:key: Keyholder: SPC#0001\n:flower_playing_cards: 3 cards · 99 greens needed · 1/1 draws\n:hourglass: Next draw \u003ct:1795781400:R\u003e\n:alarm_clock: Check-in: every 1 hour · next \u003ct:1795782600:R\u003e\n:shower: Hygiene \u003ct:1795788000:R\u003e",
+          "color": 5793266
+        },
+        {
+          "title": "Evening timer",
+          "description": "ID `e172e056-9f9c-7224-5ed0-0f9ecb353dfe`\nType: timer\n:locked: Locked · locked for 3hrs\n:key: Self-locked\n:hourglass: Unlocks \u003ct:1795786200:R\u003e",
+          "color": 5793266
+        }
+      ]
+    }
+  }
+]

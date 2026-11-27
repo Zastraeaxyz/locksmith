@@ -1,0 +1,23 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v9/interactions/1000000000000000000/interaction-token/callback",
+    "body": {
+      "type": 5,
+      "data": {
+        "tts": false,
+        "content": "",
+        "components": null,
+        "embeds": null,
+        "flags": 64
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
+    "body": {
+      "content": "**Progressive 2** (ID `731d2fb0-92f1-3a27-adf2-5268501f80bf`)\n\u003c:green:900000000000000001\u003e \u003c:red:900000000000000002\u003e \u003c:green:900000000000000001\u003e \u003c:red:900000000000000002\u003e \u003c:freeze:900000000000000010\u003e\n\n5 cards · 2 revealed · 3 left"
+    }
+  }
+]

@@ -1,0 +1,64 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v9/interactions/1000000000000000000/interaction-token/callback",
+    "body": {
+      "type": 5,
+      "data": {
+        "tts": false,
+        "content": "",
+        "components": null,
+        "embeds": null
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
+    "body": {
+      "components": [
+        {
+          "components": [
+            {
+              "label": "Load with Locksmith",
+              "style": 1,
+              "disabled": false,
+              "custom_id": "share:load:7bf633a9-a640-63b5-d7c3-de598f1353eb",
+              "type": 2
+            },
+            {
+              "label": "Simulation",
+              "style": 2,
+              "disabled": false,
+              "custom_id": "simulation:7bf633a9-a640-63b5-d7c3-de598f1353eb",
+              "type": 2
+            },
+            {
+              "label": "Open in ChastiSafe",
+              "style": 5,
+              "disabled": false,
+              "url": "https://chastisafe.test/#l/7bf633a9-a640-63b5-d7c3-de598f1353eb",
+              "type": 2
+            }
+          ],
+          "type": 1
+        }
+      ],
+      "embeds": [
+        {
+          "url": "https://chastisafe.test/#l/7bf633a9-a640-63b5-d7c3-de598f1353eb",
+          "title": "Progressive 2",
+          "description": "Shared by **testuser**\nType: card\nCards: green 2-4, red 1-2, freeze 0-1\nGreens needed: 100\nDraws: every 1 hour\nCheck-ins: every 1 hour\nPurposes: TEST, CHASTITY\n\nA progressive card lock with a mix of greens, reds, and a freeze.\n\n-# **Load with Locksmith** starts this lock here with draws, reminders, and history. **Open in ChastiSafe** loads it on the website without the bot.",
+          "color": 5793266,
+          "footer": {
+            "text": "Shared by testuser · Template 7bf633a9-a640-63b5-d7c3-de598f1353eb"
+          }
+        }
+      ],
+      "allowed_mentions": {
+        "parse": [],
+        "replied_user": false
+      }
+    }
+  }
+]

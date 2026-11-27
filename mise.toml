@@ -8,3 +8,11 @@ railway up -m "$(git log -1 --pretty=%s)"
 [tasks.emojis]
 description = "Upload the ChastiSafe card icons as application emoji"
 run = "go run ./cmd/emojis"
+
+[tasks.test]
+description = "Run the unit and snapshot tests"
+run = "go test ./..."
+
+[tasks.test-update]
+description = "Rewrite snapshot golden files"
+run = "UPDATE_GOLDEN=1 go test ./internal/feature -run TestSnapshot"

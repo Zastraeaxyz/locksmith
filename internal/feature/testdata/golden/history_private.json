@@ -1,0 +1,23 @@
+[
+  {
+    "method": "POST",
+    "path": "/api/v9/interactions/1000000000000000000/interaction-token/callback",
+    "body": {
+      "type": 5,
+      "data": {
+        "tts": false,
+        "content": "",
+        "components": null,
+        "embeds": null,
+        "flags": 64
+      }
+    }
+  },
+  {
+    "method": "PATCH",
+    "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
+    "body": {
+      "content": "**Your lock history** (2)\n\n• **Progressive 2** · code `5241` · 2d · completed · \u003ct:1795338000:f\u003e · keyholder SPC#0001 · rated 5\n• **Weekend hold** · code `8802` · 2d · unlocked by keyholder · \u003ct:1794679200:f\u003e · BONDAGE\n\n1 TEST lock hidden. Use `include_test:true` to include them.\n1 lock older than a year hidden. Use `include_old:true` to include them."
+    }
+  }
+]

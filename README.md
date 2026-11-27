@@ -296,6 +296,21 @@ cp .env.example .env   # fill in DISCORD_TOKEN
 go run .
 ```
 
+### Snapshot tests
+
+Command and modal handlers have golden tests in `internal/feature`. They run
+against fixed Discord and ChastiSafe responses in `internal/feature/testdata`,
+so the tests never touch the network. Each golden records the outbound Discord
+calls in order, including the deferral and every reply chunk.
+
+```sh
+go test ./...             # check snapshots and unit tests
+mise run test-update      # rewrite goldens after an intentional change
+```
+
+Review a golden diff before committing it. A changed reply, embed, button, or
+call order is the signal the snapshot exists to catch.
+
 ### Application emoji
 
 Card icons ship in

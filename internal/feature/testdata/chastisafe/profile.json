@@ -1,0 +1,28 @@
+{
+  "user": "testuser#0",
+  "displayMode": 1,
+  "showCombinationToKeyholder": true,
+  "digits": 4,
+  "characterSet": "NUMERIC",
+  "expandLockees": false,
+  "visible": true,
+  "roles": 1,
+  "description": "A test profile for snapshot rendering.",
+  "stats": {"CHASTITY": 89123, "CHASTITY-LONGEST": 53546},
+  "selfStats": {"CHASTITY": 79},
+  "keyholderStats": {"CHASTITY": 0},
+  "keyholderLockCounts": {"CHASTITY": 0},
+  "selfLockCounts": {"CHASTITY": 1},
+  "ratings": {
+    "ratingsAsLockeeCount": 18,
+    "ratingsAsKeyholderCount": 0,
+    "averageRatingAsLockee": 5,
+    "averageRatingAsKeyholder": 0
+  },
+  "lockInfo": {"chastityLocks": []},
+  "id": "990454274196668516",
+  "levels": {"chastityLevel": "Established"},
+  "keyholderLevels": {"chastityLevel": "Established"},
+  "badges": [],
+  "status": 0
+}

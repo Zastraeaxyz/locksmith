@@ -1,0 +1,58 @@
+[
+  {
+    "lockid": "9c2a9a9f-41ea-b8dd-4731-cfa68036f326",
+    "templateid": "7bf633a9-a640-63b5-d7c3-de598f1353eb",
+    "lockname": "Progressive 2",
+    "lockee": "testuser#0",
+    "keyholder": "SPC#0001",
+    "unlockreason": 0,
+    "rating": 5,
+    "loadtime": "2026-11-20T09:00:00Z",
+    "unlocktime": "2026-11-22T09:00:00Z",
+    "lockduration": 172800,
+    "lockcode": "5241",
+    "lockpurpose": "CHASTITY"
+  },
+  {
+    "lockid": "5a7f84c0-2a55-4f44-8d5a-b8a7d2f3c901",
+    "templateid": "7bf633a9-a640-63b5-d7c3-de598f1353eb",
+    "lockname": "Weekend hold",
+    "lockee": "testuser#0",
+    "keyholder": "<self>",
+    "unlockreason": 1,
+    "rating": 0,
+    "loadtime": "2026-11-12T18:00:00Z",
+    "unlocktime": "2026-11-14T18:00:00Z",
+    "lockduration": 172800,
+    "lockcode": "8802",
+    "lockpurpose": "BONDAGE"
+  },
+  {
+    "lockid": "e164982d-749e-2eda-a235-1738d516957f",
+    "templateid": "7bf633a9-a640-63b5-d7c3-de598f1353eb",
+    "lockname": "Test drive",
+    "lockee": "testuser#0",
+    "keyholder": "SPC#0001",
+    "unlockreason": 2,
+    "rating": 0,
+    "loadtime": "2026-11-18T10:00:00Z",
+    "unlocktime": "2026-11-19T10:00:00Z",
+    "lockduration": 86400,
+    "lockcode": "0769",
+    "lockpurpose": "TEST"
+  },
+  {
+    "lockid": "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d",
+    "templateid": "7bf633a9-a640-63b5-d7c3-de598f1353eb",
+    "lockname": "Old timer",
+    "lockee": "testuser#0",
+    "keyholder": "<self>",
+    "unlockreason": 0,
+    "rating": 0,
+    "loadtime": "2024-01-01T00:00:00Z",
+    "unlocktime": "2024-02-01T00:00:00Z",
+    "lockduration": 2678400,
+    "lockcode": "1122",
+    "lockpurpose": "CHASTITY"
+  }
+]

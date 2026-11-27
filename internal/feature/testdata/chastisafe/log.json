@@ -1,0 +1,6 @@
+[
+  {"timestamp": "2026-11-26T10:20:00Z", "actor": 2, "event_type": 6, "card": "r", "amount": 1, "hidden": 0},
+  {"timestamp": "2026-11-26T10:10:00Z", "actor": 1, "event_type": 6, "card": "g", "amount": 1, "hidden": 0},
+  {"timestamp": "2026-11-26T10:00:00Z", "actor": 1, "event_type": 39, "amount": 0, "hidden": 0},
+  {"timestamp": "2026-11-25T20:00:00Z", "actor": 0, "event_type": 21, "info": "4821", "amount": 0, "hidden": 0}
+]
