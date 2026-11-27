@@ -66,7 +66,58 @@ func (f *Feature) handleLockDeck(ctx context.Context, s *discordgo.Session, i *d
 	if target == nil {
 		return bot.EditChunks(s, i, "You have no active card lock to show.", !public)
 	}
-	return bot.EditChunks(s, i, deckText(target, note), !public)
+
+	revealed, err := f.deckRevealed(ctx, client, target)
+	if err != nil {
+		f.log.Warn("loading deck draws", "user_id", userID, "lock_id", target.ID.String(), "err", err)
+		revealed = target.Draws.Cards()
+	}
+	return bot.EditChunks(s, i, deckText(target, note, revealed), !public)
+}
+
+// deckRevealed collects every draw since the deck last reset, oldest first.
+// The loaded lock's Draws field only keeps a recent window, so the log is the
+// source for the full revealed composition.
+func (f *Feature) deckRevealed(ctx context.Context, client *cs.Client, lock *cs.LoadedLock) ([]cs.Card, error) {
+	view, err := f.fetchLog(ctx, client, lock.ID, true)
+	if err != nil {
+		return nil, err
+	}
+	return revealedDraws(view.entries), nil
+}
+
+// revealedDraws returns the draw cards since the newest reset, oldest first.
+// Log entries arrive newest first.
+func revealedDraws(entries []cs.LogEntry) []cs.Card {
+	start := len(entries)
+	for idx, entry := range entries {
+		if isDeckReset(entry.EventType) {
+			start = idx
+			break
+		}
+	}
+
+	out := make([]cs.Card, 0, start)
+	for idx := start - 1; idx >= 0; idx-- {
+		entry := entries[idx]
+		if entry.EventType != 6 {
+			continue
+		}
+		if card, ok := cardForLetter(entry.Card); ok {
+			out = append(out, card)
+		}
+	}
+	return out
+}
+
+// isDeckReset reports whether a log event starts a fresh deck, so older draws
+// are not part of the current composition.
+func isDeckReset(eventType int) bool {
+	switch eventType {
+	case 7, 9, 10, 13, 39:
+		return true
+	}
+	return false
 }
 
 // deckTarget resolves which card lock a deck request means. Without a ref it
@@ -96,7 +147,7 @@ func deckTarget(locks []cs.LoadedLock, chastisafeID, ref string) (*cs.LoadedLock
 }
 
 // deckText renders the lock header, the card grid, and the composition counts.
-func deckText(lock *cs.LoadedLock, note string) string {
+func deckText(lock *cs.LoadedLock, note string, revealed []cs.Card) string {
 	if lock == nil {
 		return "No lock selected."
 	}
@@ -108,7 +159,7 @@ func deckText(lock *cs.LoadedLock, note string) string {
 		b.WriteString("\n")
 	}
 
-	view := buildDeckView(lock)
+	view := buildDeckView(lock, revealed)
 	if len(view.icons) == 0 {
 		if lock.Hidden {
 			b.WriteString("The deck is hidden.")
@@ -141,18 +192,18 @@ func deckText(lock *cs.LoadedLock, note string) string {
 	return b.String()
 }
 
-// buildDeckView collects the known deck composition. Drawn cards are revealed,
-// so they show their faces in draw order. A visible deck also shows the faces
-// of its remaining cards. A hidden deck shows its remaining cards as card
-// backs, because their faces are unknown until they are drawn.
-func buildDeckView(lock *cs.LoadedLock) deckView {
+// buildDeckView collects the known deck composition. Revealed cards are the
+// draws since the last reset, oldest first, so they show their faces. A visible
+// deck also shows the faces of its remaining cards. A hidden deck shows its
+// remaining cards as card backs, because their faces are unknown until drawn.
+func buildDeckView(lock *cs.LoadedLock, revealed []cs.Card) deckView {
 	var view deckView
 	if lock == nil {
 		return view
 	}
 	back := deckCardBack()
 
-	for _, card := range lock.Draws.Cards() {
+	for _, card := range revealed {
 		view.icons = append(view.icons, deckCardIcon(card, back))
 		view.revealed++
 	}

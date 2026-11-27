@@ -80,13 +80,63 @@ func TestDeckTargetRefKeepsToOwnLocks(t *testing.T) {
 	}
 }
 
+func TestRevealedDrawsStopsAtReset(t *testing.T) {
+	entries := []cs.LogEntry{
+		{EventType: 6, Card: "r"},
+		{EventType: 6, Card: "g"},
+		{EventType: 39},
+		{EventType: 6, Card: "y"},
+	}
+
+	got := revealedDraws(entries)
+	want := []cs.Card{cs.CardGreen, cs.CardRed}
+	if len(got) != len(want) {
+		t.Fatalf("revealedDraws = %v, want %v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Errorf("card %d = %q, want %q", idx, got[idx], want[idx])
+		}
+	}
+}
+
+func TestRevealedDrawsSkipsOtherEvents(t *testing.T) {
+	entries := []cs.LogEntry{
+		{EventType: 6, Card: "r"},
+		{EventType: 8},
+		{EventType: 6, Card: "g"},
+	}
+
+	got := revealedDraws(entries)
+	want := []cs.Card{cs.CardGreen, cs.CardRed}
+	if len(got) != len(want) {
+		t.Fatalf("revealedDraws = %v, want %v", got, want)
+	}
+	for idx := range want {
+		if got[idx] != want[idx] {
+			t.Errorf("card %d = %q, want %q", idx, got[idx], want[idx])
+		}
+	}
+}
+
+func TestRevealedDrawsAfterReset(t *testing.T) {
+	entries := []cs.LogEntry{
+		{EventType: 9},
+		{EventType: 6, Card: "g"},
+	}
+
+	if got := revealedDraws(entries); len(got) != 0 {
+		t.Fatalf("revealedDraws after a reset = %v, want none", got)
+	}
+}
+
 func TestDeckViewShowsRevealedAndVisibleDeck(t *testing.T) {
 	lock := &cs.LoadedLock{
 		Draws: cs.Draws("gr"),
 		Deck:  cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
 	}
 
-	view := buildDeckView(lock)
+	view := buildDeckView(lock, lock.Draws.Cards())
 	if view.revealed != 2 || view.remaining != 3 || view.masked {
 		t.Fatalf("view = %+v", view)
 	}
@@ -115,7 +165,7 @@ func TestDeckViewHiddenDeckShowsCardBacks(t *testing.T) {
 		Deck:   cs.Deck{cs.CardGreen: 2, cs.CardRed: 1},
 	}
 
-	view := buildDeckView(lock)
+	view := buildDeckView(lock, lock.Draws.Cards())
 	if view.revealed != 1 || view.remaining != 3 || !view.masked {
 		t.Fatalf("view = %+v", view)
 	}
@@ -135,7 +185,7 @@ func TestDeckViewHiddenDeckShowsCardBacks(t *testing.T) {
 func TestDeckViewUnknownCardUsesCardBack(t *testing.T) {
 	lock := &cs.LoadedLock{Deck: cs.Deck{cs.Card("MYSTERY"): 2, cs.CardGreen: 1}}
 
-	view := buildDeckView(lock)
+	view := buildDeckView(lock, nil)
 	want := []string{cardEmojiMarkup(cs.CardGreen), deckCardBack(), deckCardBack()}
 	if len(view.icons) != len(want) {
 		t.Fatalf("icons = %d, want %d", len(view.icons), len(want))
@@ -150,7 +200,7 @@ func TestDeckViewUnknownCardUsesCardBack(t *testing.T) {
 func TestDeckViewUsesCardCountWhenDeckIsMissing(t *testing.T) {
 	lock := &cs.LoadedLock{CardCount: 3, Draws: cs.Draws("g")}
 
-	view := buildDeckView(lock)
+	view := buildDeckView(lock, lock.Draws.Cards())
 	if view.revealed != 1 || view.remaining != 3 || !view.masked {
 		t.Fatalf("view = %+v", view)
 	}
@@ -164,13 +214,13 @@ func TestDeckViewUsesCardCountWhenDeckIsMissing(t *testing.T) {
 
 func TestDeckTextEmpty(t *testing.T) {
 	lock := &cs.LoadedLock{LockName: "Empty", Deck: cs.Deck{}}
-	got := deckText(lock, "")
+	got := deckText(lock, "", nil)
 	if !strings.Contains(got, "The deck is empty.") {
 		t.Fatalf("deckText = %q", got)
 	}
 
 	lock.ReadyToUnlock = true
-	got = deckText(lock, "")
+	got = deckText(lock, "", nil)
 	if !strings.Contains(got, "The lock is ready to unlock.") {
 		t.Fatalf("ready deckText = %q", got)
 	}
@@ -178,7 +228,7 @@ func TestDeckTextEmpty(t *testing.T) {
 
 func TestDeckTextHiddenEmpty(t *testing.T) {
 	lock := &cs.LoadedLock{LockName: "Secret", Hidden: true}
-	got := deckText(lock, "")
+	got := deckText(lock, "", nil)
 	if !strings.Contains(got, "The deck is hidden.") {
 		t.Fatalf("deckText = %q", got)
 	}
@@ -187,7 +237,7 @@ func TestDeckTextHiddenEmpty(t *testing.T) {
 func TestDeckTextWrapsRows(t *testing.T) {
 	lock := &cs.LoadedLock{ID: "l1", LockName: "Deck", Draws: cs.Draws(strings.Repeat("g", 12))}
 
-	got := deckText(lock, "")
+	got := deckText(lock, "", lock.Draws.Cards())
 	lines := strings.Split(got, "\n")
 	if len(lines) != 5 {
 		t.Fatalf("deckText has %d lines, want 5:\n%s", len(lines), got)
@@ -211,7 +261,7 @@ func TestDeckTextHiddenComposition(t *testing.T) {
 		Deck:     cs.Deck{cs.CardRed: 2},
 	}
 
-	got := deckText(lock, "")
+	got := deckText(lock, "", lock.Draws.Cards())
 	for _, want := range []string{
 		"Secret",
 		cardEmojiMarkup(cs.CardGreen),
