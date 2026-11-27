@@ -65,6 +65,14 @@ func lockCommand() *discordgo.ApplicationCommand {
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "draw",
 				Description: "Draw the next card from your card lock",
+				Options: []*discordgo.ApplicationCommandOption{
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "auto",
+						Description: "Draw every available card in a row",
+						Required:    false,
+					},
+				},
 			},
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
@@ -335,7 +343,7 @@ func (f *Feature) handleLockCommand(ctx context.Context, s *discordgo.Session, i
 		link, _ := stringOption(sub.Options, "link")
 		return f.handleLockLoad(ctx, s, i, link)
 	case "draw":
-		return f.handleLockDraw(ctx, s, i)
+		return f.handleLockDraw(ctx, s, i, sub.Options)
 	case "open":
 		return f.handleLockOpen(ctx, s, i, sub.Options)
 	case "checkin":
@@ -386,8 +394,8 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 	return bot.EditEmbeds(s, i, embeds, !public)
 }
 
-func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
-	return f.startDrawBoard(ctx, s, i)
+func (f *Feature) handleLockDraw(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, opts []*discordgo.ApplicationCommandInteractionDataOption) error {
+	return f.startDrawBoard(ctx, s, i, boolOption(opts, "auto"))
 }
 
 func (f *Feature) handleLockNotify(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, enabled bool) error {

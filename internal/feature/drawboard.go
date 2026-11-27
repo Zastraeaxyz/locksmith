@@ -123,8 +123,9 @@ func (s *drawSession) canUse(userID string) bool {
 	return s.keyholderID != "" && userID == s.keyholderID
 }
 
-// startDrawBoard posts the public draw board for the caller's card lock.
-func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
+// startDrawBoard posts the public draw board for the caller's card lock. When
+// auto is set, it also takes every draw the lock allows in one run.
+func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, auto bool) error {
 	userID := bot.UserID(i)
 	if userID == "" {
 		return bot.ReplyEphemeral(s, i, "I cannot tell who you are.")
@@ -134,7 +135,7 @@ func (f *Feature) startDrawBoard(ctx context.Context, s *discordgo.Session, i *d
 	if err := bot.Defer(s, i, false); err != nil {
 		return err
 	}
-	return f.postDrawBoard(ctx, s, i, userID, "")
+	return f.postDrawBoard(ctx, s, i, userID, "", auto)
 }
 
 // handleDrawBoardComponent opens a fresh draw board from a draw notification
@@ -152,13 +153,14 @@ func (f *Feature) handleDrawBoardComponent(ctx context.Context, s *discordgo.Ses
 	if err := bot.Defer(s, i, false); err != nil {
 		return err
 	}
-	return f.postDrawBoard(ctx, s, i, userID, cs.ID(parts[2]))
+	return f.postDrawBoard(ctx, s, i, userID, cs.ID(parts[2]), false)
 }
 
 // postDrawBoard posts the board in the interaction's channel. The caller must
 // have deferred the reply publicly. An empty lockID picks the newest drawable
-// lock, while a given ID pins the board to a lock from a notification.
-func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, userID string, lockID cs.ID) error {
+// lock, while a given ID pins the board to a lock from a notification. When
+// auto is set, the board keeps drawing until the lock has nothing left.
+func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, userID string, lockID cs.ID, auto bool) error {
 	client, cred, err := f.clientFor(ctx, userID)
 	if err != nil {
 		return f.replyDrawPrivate(s, i, f.apiFailure(ctx, userID, err))
@@ -194,6 +196,9 @@ func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *di
 	}
 	if msg != nil {
 		session.setMessageID(msg.ID)
+	}
+	if auto {
+		return f.drawAuto(ctx, s, i, session, client, lock)
 	}
 	return nil
 }

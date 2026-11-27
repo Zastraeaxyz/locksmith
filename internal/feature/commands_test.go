@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bwmarrin/discordgo"
 	cs "github.com/zastraeaxyz/chastisafe-go"
 )
 
@@ -58,4 +59,34 @@ func TestLoginWelcomeText(t *testing.T) {
 	if got := loginWelcomeText(nil); !strings.Contains(got, "Logged in as your ChastiSafe account") {
 		t.Fatalf("nil identity = %q", got)
 	}
+}
+
+func TestLockDrawHasAutoOption(t *testing.T) {
+	var draw *discordgo.ApplicationCommandOption
+	for _, option := range lockCommand().Options {
+		if option.Name == "draw" {
+			draw = option
+			break
+		}
+	}
+	if draw == nil {
+		t.Fatal("lock command has no draw subcommand")
+	}
+	if draw.Description == "" {
+		t.Fatal("draw subcommand has no description")
+	}
+
+	for _, option := range draw.Options {
+		if option.Name != "auto" {
+			continue
+		}
+		if option.Type != discordgo.ApplicationCommandOptionBoolean {
+			t.Fatalf("auto option type = %v, want boolean", option.Type)
+		}
+		if option.Required {
+			t.Fatal("auto option should be optional")
+		}
+		return
+	}
+	t.Fatal("draw subcommand has no auto option")
 }

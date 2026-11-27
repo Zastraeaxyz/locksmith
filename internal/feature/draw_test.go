@@ -484,3 +484,52 @@ func TestResolveBoardLockWithoutIDPrefersReadyOverWaiting(t *testing.T) {
 		t.Fatalf("lock = %+v, refusal = %q, want the ready lock", lock, refusal)
 	}
 }
+
+func TestCanDrawAgain(t *testing.T) {
+	cases := []struct {
+		name string
+		lock *cs.LoadedLock
+		want bool
+	}{
+		{"nil", nil, false},
+		{"ready", &cs.LoadedLock{Type: "card", Picks: 1, ReadyToUnlock: true}, false},
+		{"frozen", &cs.LoadedLock{Type: "card", Picks: 1, FrozenByCard: true}, false},
+		{"no draws", &cs.LoadedLock{Type: "card", Picks: 0}, false},
+		{"draws", &cs.LoadedLock{Type: "card", Picks: 2}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := canDrawAgain(tc.lock); got != tc.want {
+				t.Fatalf("canDrawAgain = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestDrawAutoNote(t *testing.T) {
+	cases := []struct {
+		name  string
+		drawn int
+		lock  *cs.LoadedLock
+		stop  string
+		want  []string
+	}{
+		{"single card", 1, &cs.LoadedLock{Type: "card", Picks: 2}, "", []string{"Drew 1 card."}},
+		{"several cards", 3, &cs.LoadedLock{Type: "card", Picks: 2}, "", []string{"Drew 3 cards."}},
+		{"ready", 2, &cs.LoadedLock{Type: "card", ReadyToUnlock: true}, "", []string{"Drew 2 cards.", "ready to unlock"}},
+		{"frozen", 2, &cs.LoadedLock{Type: "card", Picks: 1, FrozenByCard: true}, "", []string{"Drew 2 cards.", "frozen"}},
+		{"stopped", 2, &cs.LoadedLock{Type: "card", Picks: 1}, "Network down.", []string{"Drew 2 cards.", "Network down."}},
+		{"nothing drawn", 0, &cs.LoadedLock{Type: "card", Picks: 1}, "", []string{"No draws were available."}},
+		{"nothing drawn with error", 0, &cs.LoadedLock{Type: "card", Picks: 1}, "Network down.", []string{"Network down."}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := drawAutoNote(tc.drawn, tc.lock, tc.stop)
+			for _, want := range tc.want {
+				if !strings.Contains(got, want) {
+					t.Errorf("drawAutoNote = %q, want %q", got, want)
+				}
+			}
+		})
+	}
+}

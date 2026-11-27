@@ -110,23 +110,12 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, lock, true, drawBlockedMessage(lock, nil, f.now()))
 	}
 
-	result, err := client.Pick(ctx, lock.ID)
+	result, updated, err := drawPick(ctx, client, session, lock, bot.UserID(i) != session.ownerID)
 	if err != nil {
 		// Leave the board open when draws may still be available so the member
 		// can retry.
 		return f.renderBoard(s, i, session, lock, true, f.apiFailure(ctx, session.ownerID, err))
 	}
-
-	updated := lock
-	if result.Lock != nil {
-		updated = result.Lock
-	}
-	session.setLock(updated)
-	session.add(drawEntry{
-		card:        result.Card,
-		dice:        result.Dice,
-		byKeyholder: bot.UserID(i) != session.ownerID,
-	})
 
 	ready := updated.IsReady()
 	keep := boardKeepsOpen(updated)
@@ -141,6 +130,106 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		f.deleteSession(session.id)
 	}
 	return f.renderBoard(s, i, session, updated, keep, drawNote)
+}
+
+// drawPick takes one draw and records it on the session, returning the pick
+// result and the updated lock.
+func drawPick(ctx context.Context, client *cs.Client, session *drawSession, lock *cs.LoadedLock, byKeyholder bool) (*cs.PickResult, *cs.LoadedLock, error) {
+	result, err := client.Pick(ctx, lock.ID)
+	if err != nil {
+		return nil, lock, err
+	}
+
+	updated := lock
+	if result.Lock != nil {
+		updated = result.Lock
+	}
+	session.setLock(updated)
+	session.add(drawEntry{
+		card:        result.Card,
+		dice:        result.Dice,
+		byKeyholder: byKeyholder,
+	})
+	return result, updated, nil
+}
+
+// drawAuto takes every draw the lock allows in one run and updates the board
+// after each card. The loop follows the lock after every pick, so a single
+// available draw keeps going when greens, stickies, doubles, or go-again cards
+// open more draws. It stops when the lock is ready, frozen, out of draws, or
+// the API stops it.
+func (f *Feature) drawAuto(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession, client *cs.Client, lock *cs.LoadedLock) error {
+	if !session.begin() {
+		// A button press got there first. The board is already posted, so let
+		// that action finish.
+		return nil
+	}
+	defer session.end()
+
+	byKeyholder := bot.UserID(i) != session.ownerID
+	drawn := 0
+	stop := ""
+
+	for canDrawAgain(lock) {
+		result, updated, err := drawPick(ctx, client, session, lock, byKeyholder)
+		if err != nil {
+			stop = f.apiFailure(ctx, session.ownerID, err)
+			break
+		}
+		drawn++
+		lock = updated
+
+		keep := boardKeepsOpen(lock)
+		if err := f.renderBoard(s, i, session, lock, keep, ""); err != nil {
+			return err
+		}
+		if result.Done || result.Lock == nil {
+			break
+		}
+	}
+
+	if drawn == 0 && stop == "" {
+		return nil
+	}
+
+	keep := boardKeepsOpen(lock)
+	if !keep {
+		f.deleteSession(session.id)
+	}
+	return f.renderBoard(s, i, session, lock, keep, drawAutoNote(drawn, lock, stop))
+}
+
+// canDrawAgain reports whether the lock can take another draw right now.
+func canDrawAgain(lock *cs.LoadedLock) bool {
+	return lock != nil && !lock.IsReady() && !lock.IsFrozen() && lock.DrawsAvailable() > 0
+}
+
+// drawAutoNote summarises an auto run: how many cards were drawn and why the
+// run ended.
+func drawAutoNote(drawn int, lock *cs.LoadedLock, stop string) string {
+	if drawn == 0 {
+		if stop != "" {
+			return stop
+		}
+		return "No draws were available."
+	}
+
+	card := "cards"
+	if drawn == 1 {
+		card = "card"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Drew %d %s.", drawn, card)
+	switch {
+	case stop != "":
+		b.WriteString(" ")
+		b.WriteString(stop)
+	case lock != nil && lock.IsReady():
+		b.WriteString(" The lock is ready to unlock.")
+	case lock != nil && lock.IsFrozen():
+		b.WriteString(" The lock is frozen, so drawing stopped.")
+	}
+	return b.String()
 }
 
 func (f *Feature) drawStop(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate, session *drawSession) error {
