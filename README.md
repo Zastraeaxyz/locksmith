@@ -55,6 +55,7 @@ user-install button, and a link to this repository.
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
 | `/changelog [public]` | Shows recent Locksmith changes, newest first |
 | `/docs [page]` | Opens the documentation index privately, or a chosen page such as Cards |
+| `/about` | Posts a short introduction for new members, with install, docs, ChastiSafe, and repository buttons |
 | `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a

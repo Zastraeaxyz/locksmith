@@ -6,6 +6,7 @@ Notable changes to Locksmith, newest first.
 
 ### Added
 
+- `/about` posts a short introduction for someone who has not installed Locksmith yet, with install, docs, ChastiSafe, and repository buttons. **Browse docs** opens the documentation index privately.
 - `/lock draw auto:true` draws auto: the board takes every draw the lock allows in a row and updates after each card, including extra draws from greens, stickies, doubles, and go-again cards. It stops when the lock is ready, freezes, or runs out.
 - `/docs` opens a private documentation index with pages for getting started, locks and templates, drawing, every card and its effect, check-ins, history and logs, and member documents. Each page has a **Back to docs** button and links to the install, ChastiSafe, and the repository.
 - `/lock load` shows the lock privately before loading it, with **Load lock**, **Simulation** (card locks), and **Open in ChastiSafe** buttons. Nothing is loaded until **Load lock** is pressed.
