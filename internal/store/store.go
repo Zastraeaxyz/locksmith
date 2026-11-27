@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 5
+const schemaVersion = 6
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -48,6 +48,13 @@ type Notification struct {
 	// CheckinStage is the last reminder sent for that moment: "lead",
 	// "final", or "overdue". Empty means no reminder yet.
 	CheckinStage string
+
+	// FreezeStartAt is the log timestamp of the freeze being tracked. Zero
+	// means no freeze is pending a draw notification.
+	FreezeStartAt time.Time
+	// FreezePingAt is when the guaranteed freeze notification is due. Zero
+	// means no ping is pending for the tracked freeze.
+	FreezePingAt time.Time
 }
 
 // Watch starts or refreshes a member's draw subscription for one lock. It
@@ -58,6 +65,16 @@ type Watch struct {
 	LockID        string
 	LastDraws     string
 	NextCheckAt   time.Time
+}
+
+// Freeze records the freeze a watched lock is in. StartAt is the log
+// timestamp of the freeze. PingAt is when the guaranteed notification is due,
+// or zero when no ping is pending. Clearing both fields ends the freeze.
+type Freeze struct {
+	DiscordUserID string
+	LockID        string
+	StartAt       time.Time
+	PingAt        time.Time
 }
 
 // Draws records a draw-schedule observation for a watched lock.
@@ -257,6 +274,24 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	if version < 6 {
+		if _, err := tx.ExecContext(ctx,
+			`ALTER TABLE notifications ADD COLUMN freeze_start_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`ALTER TABLE notifications ADD COLUMN freeze_ping_at INTEGER NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			CREATE TABLE IF NOT EXISTS notification_optouts (
+				discord_user_id TEXT PRIMARY KEY,
+				created_at      INTEGER NOT NULL DEFAULT (unixepoch())
+			)`); err != nil {
+			return err
+		}
+	}
+
 	if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version = %d", schemaVersion)); err != nil {
 		return err
 	}
@@ -317,6 +352,11 @@ func (s *Store) DeleteCredential(ctx context.Context, discordUserID string) erro
 	}
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM notifications WHERE discord_user_id = ?`, discordUserID)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.ExecContext(ctx,
+		`DELETE FROM notification_optouts WHERE discord_user_id = ?`, discordUserID)
 	return err
 }
 
@@ -340,7 +380,13 @@ func (s *Store) Watch(ctx context.Context, w Watch) error {
 				THEN notifications.checkin_due_at ELSE 0 END,
 			checkin_stage = CASE
 				WHEN notifications.lock_id = excluded.lock_id
-				THEN notifications.checkin_stage ELSE '' END`,
+				THEN notifications.checkin_stage ELSE '' END,
+			freeze_start_at = CASE
+				WHEN notifications.lock_id = excluded.lock_id
+				THEN notifications.freeze_start_at ELSE 0 END,
+			freeze_ping_at = CASE
+				WHEN notifications.lock_id = excluded.lock_id
+				THEN notifications.freeze_ping_at ELSE 0 END`,
 		w.DiscordUserID, w.LockID, w.LastDraws, w.NextCheckAt.Unix(),
 	)
 	return err
@@ -357,6 +403,28 @@ func (s *Store) RecordDraws(ctx context.Context, d Draws) error {
 		d.LockID, d.LastDraws, d.LastPicks, d.LastNotifiedAt.Unix(),
 		d.NextCheckAt.Unix(), d.DiscordUserID,
 	)
+	return err
+}
+
+// RecordFreeze stores the freeze a watched lock is in. It leaves the draw
+// schedule and check-in reminder state untouched.
+func (s *Store) RecordFreeze(ctx context.Context, fr Freeze) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications
+		SET lock_id = ?, freeze_start_at = ?, freeze_ping_at = ?
+		WHERE discord_user_id = ?`,
+		fr.LockID, unixSeconds(fr.StartAt), unixSeconds(fr.PingAt), fr.DiscordUserID,
+	)
+	return err
+}
+
+// ClearFreeze ends the tracked freeze for one lock, so the next draw is
+// announced normally. A lock switch leaves the new lock's state alone.
+func (s *Store) ClearFreeze(ctx context.Context, discordUserID, lockID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE notifications
+		SET freeze_start_at = 0, freeze_ping_at = 0
+		WHERE discord_user_id = ? AND lock_id = ?`, discordUserID, lockID)
 	return err
 }
 
@@ -391,6 +459,54 @@ func (s *Store) Unsubscribe(ctx context.Context, discordUserID string) error {
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM notifications WHERE discord_user_id = ?`, discordUserID)
 	return err
+}
+
+// OptOut records that a member turned notifications off on purpose, so the
+// startup backfill does not turn them back on.
+func (s *Store) OptOut(ctx context.Context, discordUserID string) error {
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO notification_optouts (discord_user_id) VALUES (?)
+		ON CONFLICT(discord_user_id) DO NOTHING`, discordUserID)
+	return err
+}
+
+// OptIn clears a recorded opt-out. Watching a lock is an explicit request for
+// reminders, so it always opts the member back in.
+func (s *Store) OptIn(ctx context.Context, discordUserID string) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM notification_optouts WHERE discord_user_id = ?`, discordUserID)
+	return err
+}
+
+// UnwatchedCredentialIDs returns members who have a stored code but no
+// subscription and no recorded opt-out. They are the candidates for the
+// startup backfill that restores subscriptions which ended for a reason other
+// than the member turning them off.
+func (s *Store) UnwatchedCredentialIDs(ctx context.Context) ([]string, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT c.discord_user_id
+		FROM credentials c
+		LEFT JOIN notifications n ON n.discord_user_id = c.discord_user_id
+		WHERE n.discord_user_id IS NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM notification_optouts o
+				WHERE o.discord_user_id = c.discord_user_id
+			)
+		ORDER BY c.discord_user_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []string
+	for rows.Next() {
+		var userID string
+		if err := rows.Scan(&userID); err != nil {
+			return nil, err
+		}
+		out = append(out, userID)
+	}
+	return out, rows.Err()
 }
 
 // RecordNotificationMessage remembers a sent notification DM so it can be
@@ -482,7 +598,8 @@ func (s *Store) ClearCheckin(ctx context.Context, discordUserID, lockID string) 
 func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notification, error) {
 	row := s.db.QueryRowContext(ctx, `
 		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
-			next_check_at, created_at, checkin_due_at, checkin_stage
+			next_check_at, created_at, checkin_due_at, checkin_stage,
+			freeze_start_at, freeze_ping_at
 		FROM notifications WHERE discord_user_id = ?`, discordUserID)
 	return scanNotification(row)
 }
@@ -491,7 +608,8 @@ func (s *Store) Notification(ctx context.Context, discordUserID string) (*Notifi
 func (s *Store) DueNotifications(ctx context.Context, now time.Time) ([]Notification, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT discord_user_id, lock_id, last_draws, last_picks, last_notified_at,
-			next_check_at, created_at, checkin_due_at, checkin_stage
+			next_check_at, created_at, checkin_due_at, checkin_stage,
+			freeze_start_at, freeze_ping_at
 		FROM notifications
 		WHERE next_check_at <= ?
 		ORDER BY next_check_at`, now.Unix())
@@ -523,9 +641,11 @@ func scanNotification(row scanner) (*Notification, error) {
 		n                                Notification
 		lastNotified, nextCheck, created int64
 		checkinDue                       int64
+		freezeStart, freezePing          int64
 	)
 	err := row.Scan(&n.DiscordUserID, &n.LockID, &n.LastDraws, &n.LastPicks,
-		&lastNotified, &nextCheck, &created, &checkinDue, &n.CheckinStage)
+		&lastNotified, &nextCheck, &created, &checkinDue, &n.CheckinStage,
+		&freezeStart, &freezePing)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -539,7 +659,24 @@ func scanNotification(row scanner) (*Notification, error) {
 	if checkinDue != 0 {
 		n.CheckinDueAt = time.Unix(checkinDue, 0).UTC()
 	}
+	n.FreezeStartAt = time.Time{}
+	if freezeStart != 0 {
+		n.FreezeStartAt = time.Unix(freezeStart, 0).UTC()
+	}
+	n.FreezePingAt = time.Time{}
+	if freezePing != 0 {
+		n.FreezePingAt = time.Unix(freezePing, 0).UTC()
+	}
 	return &n, nil
+}
+
+// unixSeconds converts a stored moment to unix seconds, with zero meaning the
+// moment is not set.
+func unixSeconds(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.Unix()
 }
 
 func scanNotificationMessage(row scanner) (NotificationMessage, error) {
