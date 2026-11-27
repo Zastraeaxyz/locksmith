@@ -11,6 +11,7 @@ Notable changes to Locksmith, newest first.
 
 ### Fixed
 
+- A freeze's elapsed time in `/lock status` and `/lock draw` now comes from the card that froze the lock. Sticky cards are not freezes, while stun and dice cards are, so a stun freeze no longer reports the whole lock duration.
 - Check-in reminders no longer offer a **Check-in** button before the check-in is due. ChastiSafe's tolerance is a late window, not an early one, so the button now appears at the due moment and stays through the overdue period.
 
 ## 2026-11-26

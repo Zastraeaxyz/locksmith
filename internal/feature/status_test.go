@@ -302,7 +302,7 @@ func TestFreezeStart(t *testing.T) {
 	both := &cs.LoadedLock{FrozenByKeyholder: true, FrozenByCard: true}
 	bothEntries := []cs.LogEntry{
 		{EventType: 2, Timestamp: cs.Time{Time: now.Add(-30 * time.Minute)}},
-		{EventType: 6, Card: "s", Timestamp: cs.Time{Time: now.Add(-10 * time.Minute)}},
+		{EventType: 6, Card: "t", Timestamp: cs.Time{Time: now.Add(-10 * time.Minute)}},
 	}
 	since, ok = freezeStartFor(both, bothEntries)
 	if !ok {
@@ -311,15 +311,37 @@ func TestFreezeStart(t *testing.T) {
 	if !since.Equal(now.Add(-10 * time.Minute)) {
 		t.Fatalf("mixed since = %s", since)
 	}
+
+	// A stun is the freeze; an older sticky card is not. The scan must stop at
+	// the stun instead of falling through to the sticky.
+	stunAfterSticky := []cs.LogEntry{
+		{EventType: 6, Card: "t", Timestamp: cs.Time{Time: now.Add(-time.Hour)}},
+		{EventType: 6, Card: "s", Timestamp: cs.Time{Time: now.Add(-23 * time.Hour)}},
+	}
+	since, ok = freezeStartFor(cardFreeze, stunAfterSticky)
+	if !ok {
+		t.Fatal("expected the stun to start the freeze")
+	}
+	if !since.Equal(now.Add(-time.Hour)) {
+		t.Fatalf("stun since = %s", since)
+	}
+
+	// A sticky alone never starts a freeze, so the caller shows no duration.
+	stickyOnly := []cs.LogEntry{
+		{EventType: 6, Card: "s", Timestamp: cs.Time{Time: now}},
+	}
+	if _, ok := freezeStartFor(cardFreeze, stickyOnly); ok {
+		t.Fatal("a sticky card should not report a freeze start")
+	}
 }
 
 func TestIsFreezeCard(t *testing.T) {
-	for _, letter := range []string{"f", "a", "s"} {
+	for _, letter := range []string{"f", "a", "t", "i"} {
 		if !isFreezeCard(letter) {
 			t.Errorf("isFreezeCard(%q) = false, want true", letter)
 		}
 	}
-	for _, letter := range []string{"", "r", "g", "t", "i"} {
+	for _, letter := range []string{"", "r", "g", "s", "y"} {
 		if isFreezeCard(letter) {
 			t.Errorf("isFreezeCard(%q) = true, want false", letter)
 		}

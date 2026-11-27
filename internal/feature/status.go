@@ -419,7 +419,10 @@ func freezeStartFor(lock *cs.LoadedLock, entries []cs.LogEntry) (time.Time, bool
 	}
 }
 
-// isFreezeCard reports whether a log card letter applies a freeze.
+// isFreezeCard reports whether a log card letter applies a freeze. A sticky
+// card goes back to the deck and does not freeze; the Arctic card is the
+// sticky freeze. Stun and dice both freeze, even though their names do not say
+// so.
 func isFreezeCard(letter string) bool {
 	letter = strings.ToLower(strings.TrimSpace(letter))
 	if letter == "" {
@@ -430,7 +433,7 @@ func isFreezeCard(letter string) bool {
 		return false
 	}
 	switch card {
-	case cs.CardFreeze, cs.CardArctic, cs.CardSticky:
+	case cs.CardFreeze, cs.CardArctic, cs.CardStun, cs.CardDice:
 		return true
 	default:
 		return false
