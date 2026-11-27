@@ -35,8 +35,9 @@ type docsPage struct {
 	Blurb string
 	// Description is the embed body.
 	Description string
-	// Fields holds grouped content, such as the card list.
-	Fields []*discordgo.MessageEmbedField
+	// Fields builds grouped content when the page is rendered. The card page
+	// needs this because application emoji IDs are resolved at runtime.
+	Fields func() []*discordgo.MessageEmbedField
 }
 
 // docsPages is the ordered list shown on the index and in the page buttons.
@@ -132,7 +133,7 @@ var docsPages = []docsPage{
 			"**Every card in a card lock**",
 			"A card lock draws from a deck. Greens are your progress; most other cards change the deck or make you wait. The deck does not show which yellow card is next.",
 		),
-		Fields: cardDocsFields(),
+		Fields: cardDocsFields,
 	},
 	{
 		Key:   "checkins",
@@ -260,9 +261,14 @@ func cardDocsFields() []*discordgo.MessageEmbedField {
 	}
 }
 
-// docCard renders one card line with its application emoji and log label.
+// docCard renders one card line with its application emoji and log label. An
+// unresolved emoji is left out rather than starting the line with a space.
 func docCard(card cs.Card, effect string) string {
-	return cardEmojiMarkup(card) + " **" + cardLogLabel(card) + "**: " + effect
+	emoji := cardEmojiMarkup(card)
+	if emoji != "" {
+		emoji += " "
+	}
+	return emoji + "**" + cardLogLabel(card) + "**: " + effect
 }
 
 // docsCommand opens the documentation. The page option is generated from the
@@ -290,7 +296,8 @@ func docsCommand() *discordgo.ApplicationCommand {
 	}
 }
 
-// handleDocsCommand posts the index or a requested page publicly.
+// handleDocsCommand posts the index or a requested page privately, so reading
+// the docs does not fill the channel. Page buttons edit the ephemeral reply.
 func (f *Feature) handleDocsCommand(ctx context.Context, s *discordgo.Session, i *discordgo.InteractionCreate) error {
 	key := docsIndexKey
 	if page, ok := stringOption(i.ApplicationCommandData().Options, "page"); ok {
@@ -299,7 +306,7 @@ func (f *Feature) handleDocsCommand(ctx context.Context, s *discordgo.Session, i
 	return bot.ReplyEmbed(s, i,
 		[]*discordgo.MessageEmbed{docsEmbed(key)},
 		docsComponents(key, sessionClientID(s)),
-		false,
+		true,
 	)
 }
 
@@ -358,6 +365,11 @@ func docsEmbed(key string) *discordgo.MessageEmbed {
 		return docsIndexEmbed()
 	}
 
+	var fields []*discordgo.MessageEmbedField
+	if page.Fields != nil {
+		fields = page.Fields()
+	}
+
 	footer := fmt.Sprintf("Locksmith docs · Page %d of %d", docsPageNumber(page.Key), len(docsPages))
 	if page.Key == "cards" {
 		footer += " · Card effects follow the ChastiSafe app help"
@@ -367,7 +379,7 @@ func docsEmbed(key string) *discordgo.MessageEmbed {
 		URL:         repoURL,
 		Color:       embedColor,
 		Description: page.Description,
-		Fields:      page.Fields,
+		Fields:      fields,
 		Footer:      &discordgo.MessageEmbedFooter{Text: footer},
 	}
 }

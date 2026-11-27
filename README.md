@@ -54,7 +54,7 @@ user-install button, and a link to this repository.
 | `/kinks view [user]` | Shares a member's kinks document |
 | `/kinks edit` | Opens a prefilled modal to set your kinks |
 | `/changelog [public]` | Shows recent Locksmith changes, newest first |
-| `/docs [page]` | Opens the documentation index, or a chosen page such as Cards |
+| `/docs [page]` | Opens the documentation index privately, or a chosen page such as Cards |
 | `/help` | Posts the guide with the recommended user-install link and a link to this repository |
 
 Every `ref` option autocompletes. `/lock checkin` lists your locks that need a
@@ -208,10 +208,10 @@ document as plain markdown.
 
 ## Documentation in Discord
 
-`/docs` opens a documentation index inside Discord. Each topic is one embed
-with a **Back to docs** button and links to the user install, ChastiSafe, and
-this repository. Navigation edits the message in place, so reading the docs
-does not fill the channel.
+`/docs` opens a private documentation index inside Discord. Each topic is one
+embed with a **Back to docs** button and links to the user install, ChastiSafe,
+and this repository. Navigation edits the ephemeral message in place, so
+reading the docs does not fill the channel or leave anything behind.
 
 The pages are:
 

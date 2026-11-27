@@ -67,7 +67,7 @@ func TestDocsPages(t *testing.T) {
 		if len([]rune(page.Description)) > 4096 {
 			t.Errorf("%s: description too long: %d", page.Key, len([]rune(page.Description)))
 		}
-		for _, field := range page.Fields {
+		for _, field := range pageFields(page) {
 			if len([]rune(field.Name)) > 256 {
 				t.Errorf("%s field %q: name too long", page.Key, field.Name)
 			}
@@ -313,7 +313,7 @@ func TestDocsCardsCoverEveryCard(t *testing.T) {
 	}
 	var body strings.Builder
 	body.WriteString(page.Description)
-	for _, field := range page.Fields {
+	for _, field := range pageFields(*page) {
 		body.WriteString(field.Value)
 	}
 	text := body.String()
@@ -328,6 +328,40 @@ func TestDocsCardsCoverEveryCard(t *testing.T) {
 			t.Errorf("cards page missing %q (%s)", label, card)
 		}
 	}
+}
+
+func TestDocsCardEmojiAreResolvedAtRenderTime(t *testing.T) {
+	embed := docsEmbed("cards")
+	if len(embed.Fields) == 0 {
+		t.Fatal("cards page has no fields")
+	}
+
+	var text strings.Builder
+	for _, field := range embed.Fields {
+		text.WriteString(field.Value)
+		for _, line := range strings.Split(field.Value, "\n") {
+			if strings.HasPrefix(line, " **") {
+				t.Errorf("card line starts with a space: %q", line)
+			}
+		}
+	}
+
+	for _, card := range []cs.Card{cs.CardGreen, cs.CardFreeze, cs.CardPink} {
+		markup := cardEmojiMarkup(card)
+		if markup == "" {
+			t.Fatalf("test emoji for %s is not seeded", card)
+		}
+		if !strings.Contains(text.String(), markup) {
+			t.Errorf("cards page missing emoji %q", markup)
+		}
+	}
+}
+
+func pageFields(page docsPage) []*discordgo.MessageEmbedField {
+	if page.Fields == nil {
+		return nil
+	}
+	return page.Fields()
 }
 
 func TestSessionClientID(t *testing.T) {
