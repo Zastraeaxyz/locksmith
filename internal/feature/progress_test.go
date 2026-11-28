@@ -420,6 +420,7 @@ func TestProgressRealDoubleSession(t *testing.T) {
 	lock := progressLock(nil, true, now)
 	lock.CardCount = 179
 	lock.GreensRequired = 10000
+	lock.Regularity = 60
 	lock.LoadTime = cs.Time{Time: time.Date(2026, 11, 26, 16, 22, 31, 0, time.UTC)}
 	lock.LastResetTime = lock.LoadTime
 
@@ -476,6 +477,10 @@ func TestProgressRealDoubleSession(t *testing.T) {
 	if strings.Contains(text, "All greens required") || strings.Contains(text, "Other cards include") {
 		t.Errorf("state still contains noisy copy: %q", text)
 	}
+	forecast := progressForecastText(lock, state, events, now)
+	if !strings.Contains(forecast, "Greens left: ~") || !strings.Contains(forecast, "Draw time:") {
+		t.Errorf("forecast = %q", forecast)
+	}
 }
 
 func TestProgressExplicitEditsAreSigned(t *testing.T) {
@@ -490,5 +495,150 @@ func TestProgressExplicitEditsAreSigned(t *testing.T) {
 	}
 	if !strings.Contains(text, "Removed: "+cardEmojiMarkup(cs.CardGreen)+" -1") {
 		t.Errorf("removed line is not signed:\n%s", text)
+	}
+}
+
+func TestProgressDurationPredictionVisible(t *testing.T) {
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60}
+	state := progressDeckState{
+		total:          10,
+		totalExact:     true,
+		redYellow:      5,
+		redYellowExact: true,
+		greens:         2,
+		greensExact:    true,
+		greensNeeded:   2,
+	}
+	min, avg, max, ok := progressDurationPrediction(lock, state, nil, now)
+	if !ok {
+		t.Fatal("no duration estimate")
+	}
+	if min != 2*time.Hour || avg != 7*time.Hour+20*time.Minute || max != 10*time.Hour {
+		t.Fatalf("duration = %s/%s/%s, want 2h/7h20m/10h", min, avg, max)
+	}
+}
+
+func TestProgressDurationPredictionHidden(t *testing.T) {
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60}
+	state := progressDeckState{
+		total:          10,
+		totalExact:     true,
+		redYellow:      5,
+		redYellowExact: true,
+		greensNeeded:   2,
+	}
+	events := []cs.LogEntry{
+		{Timestamp: cs.Time{Time: now.Add(-time.Hour)}, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: now.Add(-30 * time.Minute)}, EventType: 6, Card: "f"},
+	}
+	point, _, _, exact, ok := progressGreensLeft(lock, state, events, now)
+	if !ok || exact || point != 3 {
+		t.Fatalf("greens left = %d exact=%t ok=%t, want ~3", point, exact, ok)
+	}
+	min, avg, max, ok := progressDurationPrediction(lock, state, events, now)
+	if !ok {
+		t.Fatal("no duration estimate")
+	}
+	if min != 2*time.Hour || avg != 5*time.Hour+30*time.Minute || max != 10*time.Hour {
+		t.Fatalf("duration = %s/%s/%s, want 2h/5h30m/10h", min, avg, max)
+	}
+}
+
+func TestProgressDurationPredictionAllGreensHidden(t *testing.T) {
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60, GreensRequired: 10000}
+	state := progressDeckState{
+		total:          10,
+		totalExact:     true,
+		redYellow:      5,
+		redYellowExact: true,
+		greensNeeded:   -1,
+		allGreens:      true,
+	}
+	events := []cs.LogEntry{
+		{Timestamp: cs.Time{Time: now.Add(-time.Hour)}, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: now.Add(-30 * time.Minute)}, EventType: 6, Card: "f"},
+	}
+	min, avg, max, ok := progressDurationPrediction(lock, state, events, now)
+	if !ok {
+		t.Fatal("no duration estimate")
+	}
+	if max != 10*time.Hour {
+		t.Fatalf("max = %s, want 10h", max)
+	}
+	if min <= 0 || min > avg || avg > max {
+		t.Fatalf("duration ordering = %s/%s/%s", min, avg, max)
+	}
+}
+
+func TestProgressForecastCaveats(t *testing.T) {
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60}
+
+	hidden := progressDeckState{total: 10, totalExact: true, redYellow: 5, redYellowExact: true, greensNeeded: 2}
+	text := progressForecastText(lock, hidden, []cs.LogEntry{
+		{Timestamp: cs.Time{Time: now.Add(-time.Hour)}, EventType: 6, Card: "g"},
+		{Timestamp: cs.Time{Time: now.Add(-30 * time.Minute)}, EventType: 6, Card: "f"},
+	}, now)
+	for _, want := range []string{"Greens left: ~3", "Draw time:", "double up", "reset"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("hidden forecast missing %q:\n%s", want, text)
+		}
+	}
+
+	visible := progressDeckState{
+		total:          10,
+		totalExact:     true,
+		redYellow:      5,
+		redYellowExact: true,
+		greens:         2,
+		greensExact:    true,
+		greensNeeded:   2,
+		cards:          cs.Deck{cs.CardGreen: 2, cs.CardRed: 5, cs.CardFreeze: 3},
+	}
+	text = progressForecastText(lock, visible, nil, now)
+	if strings.Contains(text, "double up") || strings.Contains(text, "reset") {
+		t.Errorf("visible forecast invented caveats:\n%s", text)
+	}
+
+	visible.cards[cs.CardDoubleUp] = 1
+	text = progressForecastText(lock, visible, nil, now)
+	if !strings.Contains(text, "double up") || strings.Contains(text, "reset") {
+		t.Errorf("visible double caveat = %q", text)
+	}
+}
+
+func TestProgressDurationStopsWhenReady(t *testing.T) {
+	now := time.Date(2026, 11, 28, 12, 0, 0, 0, time.UTC)
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60, ReadyToUnlock: true}
+	state := progressDeckState{total: 3, totalExact: true, greensNeeded: 1}
+	if _, _, _, ok := progressDurationPrediction(lock, state, nil, now); ok {
+		t.Fatal("a ready lock should have no duration")
+	}
+	lock.ReadyToUnlock = false
+	lock.Regularity = 0
+	if _, _, _, ok := progressDurationPrediction(lock, state, nil, now); ok {
+		t.Fatal("a lock without an interval should have no duration")
+	}
+}
+
+func TestProgressCannotFinishWhenGreensExceedDeck(t *testing.T) {
+	lock := &cs.LoadedLock{Type: "card", Regularity: 60, GreensRequired: 100}
+	state := progressDeckState{
+		total:          3,
+		totalExact:     true,
+		redYellow:      1,
+		redYellowExact: true,
+		greens:         1,
+		greensExact:    true,
+		greensNeeded:   99,
+	}
+	if progressCanFinish(lock, state) {
+		t.Fatal("an impossible green requirement should not be reported as reachable")
+	}
+	if !strings.Contains(progressForecastText(lock, state, nil, time.Now()), "not reachable") {
+		t.Fatalf("forecast = %q", progressForecastText(lock, state, nil, time.Now()))
 	}
 }

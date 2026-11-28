@@ -264,7 +264,7 @@ func buildProgressReport(target *progressTarget, entries []cs.LogEntry, observat
 	}
 	if target.running != nil {
 		nowState, ok := ends[progressDayKey(now)]
-		sections = append(sections, progressNowText(target.running, nowState, ok))
+		sections = append(sections, progressNowText(target.running, nowState, ok, chronological, now))
 		sections = append(sections, progressTotalsText(target.running, chronological))
 	}
 	if len(dayList) > 0 {
@@ -327,7 +327,7 @@ func progressHeader(target *progressTarget, now time.Time) string {
 }
 
 // progressNowText summarizes the live deck.
-func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool) string {
+func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool, events []cs.LogEntry, now time.Time) string {
 	if lock == nil {
 		return ""
 	}
@@ -338,7 +338,83 @@ func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool) stri
 		return b.String()
 	}
 	b.WriteString(progressStateText(lock, state))
+	if forecast := progressForecastText(lock, state, events, now); forecast != "" {
+		b.WriteString("\n")
+		b.WriteString(forecast)
+	}
 	return b.String()
+}
+
+// progressForecastText estimates the greens left and the remaining draw time.
+func progressForecastText(lock *cs.LoadedLock, state progressDeckState, events []cs.LogEntry, now time.Time) string {
+	if lock == nil || lock.IsReady() {
+		return ""
+	}
+	point, low, high, exact, ok := progressGreensLeft(lock, state, events, now)
+	if !ok {
+		return ""
+	}
+	var lines []string
+	switch {
+	case exact:
+		lines = append(lines, fmt.Sprintf("Greens left: %d", point))
+	case low == high:
+		lines = append(lines, fmt.Sprintf("Greens left: ~%d", point))
+	default:
+		lines = append(lines, fmt.Sprintf("Greens left: ~%d (range %d to %d)", point, low, high))
+	}
+	if !progressCanFinish(lock, state) {
+		lines = append(lines, "Draw time: not reachable with the current deck.")
+	} else if min, avg, max, ok := progressDurationPrediction(lock, state, events, now); ok {
+		lines = append(lines, fmt.Sprintf("Draw time: %s min · %s avg · %s max",
+			elapsedLabel(min), elapsedLabel(avg), elapsedLabel(max)))
+	}
+	if caveat := progressCaveatText(state); caveat != "" {
+		lines = append(lines, caveat)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// progressCanFinish reports a known impossible green requirement.
+func progressCanFinish(lock *cs.LoadedLock, state progressDeckState) bool {
+	if lock == nil || !state.totalExact || state.allGreens {
+		return true
+	}
+	needed := state.greensNeeded
+	if needed <= 0 {
+		return true
+	}
+	if needed > state.total {
+		return false
+	}
+	if state.greensExact {
+		return needed <= state.greens
+	}
+	if !state.redYellowExact {
+		return true
+	}
+	other := state.total - state.redYellow
+	return needed <= other
+}
+
+// progressCaveatText names the cards that can invalidate the estimate.
+func progressCaveatText(state progressDeckState) string {
+	double, reset := false, false
+	if state.cards != nil {
+		double = state.cards[cs.CardDoubleUp] > 0
+		reset = state.cards[cs.CardReset] > 0
+	} else {
+		double = true
+		reset = true
+	}
+	var parts []string
+	if double {
+		parts = append(parts, "A double up can extend this.")
+	}
+	if reset {
+		parts = append(parts, "A reset rebuilds the deck, so this estimate no longer applies after one.")
+	}
+	return strings.Join(parts, " ")
 }
 
 // progressTotalsText shows counters that span the whole lock.

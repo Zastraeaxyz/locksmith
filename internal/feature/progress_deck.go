@@ -6,6 +6,7 @@ package feature
 // the before and after totals that make a double up exact.
 
 import (
+	"math"
 	"sort"
 	"time"
 
@@ -844,6 +845,129 @@ func progressSameDeck(left, right cs.Deck) bool {
 		}
 	}
 	return true
+}
+
+// progressGreensLeft estimates the greens left in a hidden deck from the
+// observed green share of non-red/yellow draws. A visible deck is exact.
+func progressGreensLeft(lock *cs.LoadedLock, state progressDeckState, events []cs.LogEntry, now time.Time) (point, low, high int, exact, ok bool) {
+	if lock == nil || !state.totalExact {
+		return 0, 0, 0, false, false
+	}
+	if state.greensExact {
+		return state.greens, state.greens, state.greens, true, true
+	}
+	if state.redYellowUnknown {
+		return 0, 0, 0, false, false
+	}
+	other := state.total - state.redYellow
+	if other < 0 {
+		other = 0
+	}
+	if other == 0 {
+		return 0, 0, 0, false, true
+	}
+
+	start := 0
+	for idx, entry := range events {
+		if entry.Timestamp.Time.After(now) {
+			break
+		}
+		if isDeckReset(entry.EventType) {
+			start = idx + 1
+		}
+	}
+	greensDrawn, nonRY := 0, 0
+	for _, entry := range events[start:] {
+		if entry.Timestamp.Time.After(now) {
+			break
+		}
+		if entry.EventType != 6 {
+			continue
+		}
+		card, ok := progressDrawCard(entry)
+		if !ok {
+			continue
+		}
+		if card == cs.CardRed || isYellowCard(card) {
+			continue
+		}
+		nonRY++
+		if card == cs.CardGreen {
+			greensDrawn++
+		}
+	}
+	if nonRY == 0 {
+		return 0, 0, 0, false, false
+	}
+
+	p := float64(greensDrawn+1) / float64(nonRY+2)
+	se := math.Sqrt(p * (1 - p) / float64(nonRY+3))
+	point = clampInt(int(math.Round(p*float64(other))), 0, other)
+	low = clampInt(int(math.Round(math.Max(0, p-1.64*se)*float64(other))), 0, other)
+	high = clampInt(int(math.Round(math.Min(1, p+1.64*se)*float64(other))), 0, other)
+
+	if !state.allGreens {
+		needed := state.greensNeeded
+		if needed < 0 {
+			needed = 0
+		}
+		point = clampInt(max(needed, point), 0, other)
+		low = clampInt(max(needed, low), 0, other)
+		high = clampInt(max(needed, high), 0, other)
+	}
+	return point, low, high, false, true
+}
+
+// progressDurationPrediction turns the green estimate into minimum, average,
+// and maximum draw time. Doublers, resets, freezes, and extra draws are not
+// part of the calculation.
+func progressDurationPrediction(lock *cs.LoadedLock, state progressDeckState, events []cs.LogEntry, now time.Time) (minDuration, avgDuration, maxDuration time.Duration, ok bool) {
+	if lock == nil || lock.Regularity <= 0 || lock.IsReady() || !state.totalExact || !progressCanFinish(lock, state) {
+		return 0, 0, 0, false
+	}
+	point, low, _, _, ok := progressGreensLeft(lock, state, events, now)
+	if !ok {
+		return 0, 0, 0, false
+	}
+	total := state.total
+	if total <= 0 {
+		return 0, 0, 0, false
+	}
+
+	needed := state.greensNeeded
+	if state.allGreens {
+		needed = point
+		if needed <= 0 {
+			needed = 1
+		}
+	}
+	if needed <= 0 {
+		return 0, 0, 0, false
+	}
+	totalGreens := max(needed, point)
+	if totalGreens <= 0 {
+		totalGreens = needed
+	}
+
+	minDraws := needed
+	if state.allGreens {
+		minDraws = max(1, low)
+	}
+	minDraws = clampInt(minDraws, 1, total)
+	maxDraws := total
+	avgDraws := float64(needed) * float64(total+1) / float64(totalGreens+1)
+	if avgDraws < float64(minDraws) {
+		avgDraws = float64(minDraws)
+	}
+	if avgDraws > float64(maxDraws) {
+		avgDraws = float64(maxDraws)
+	}
+
+	interval := float64(lock.Regularity)
+	minDuration = time.Duration(float64(minDraws)*interval) * time.Minute
+	avgDuration = time.Duration(math.Round(avgDraws*interval)) * time.Minute
+	maxDuration = time.Duration(float64(maxDraws)*interval) * time.Minute
+	return minDuration, avgDuration, maxDuration, true
 }
 
 // exactProgressState derives a state from an exact deck composition.
