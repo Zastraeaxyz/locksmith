@@ -10,6 +10,7 @@ Notable changes to Locksmith, newest first.
 
 ### Changed
 
+- `/lock progress` daily blocks are more compact: the green tally replaces the all-greens note, the per-day card breakdown and removed-card line are gone, the UTC header is removed, and the day label omits the year. The double up line carries the exact before and after counts.
 - Locksmith stores small deck snapshots for active locks, so `/lock progress` can report exact deck and double up counts after a lock has been running. Hidden decks store only the count, never their card faces.
 - `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.
 - A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock and announces the first draw after the freeze. At 4x the draw interval, the longest a freeze card holds, it checks again shortly and pings only once the freeze is actually over. The message that asked members to run `/lock notify` is gone.

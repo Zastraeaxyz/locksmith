@@ -60,8 +60,10 @@ type progressDeckState struct {
 	redYellowExact   bool
 	redYellowUnknown bool
 
-	greens      int
-	greensExact bool
+	greens         int
+	greensExact    bool
+	greensProgress int
+	greensGoal     int
 
 	greensNeeded int
 	allGreens    bool
@@ -383,55 +385,51 @@ func progressTotalsText(lock *cs.LoadedLock, events []cs.LogEntry) string {
 	return text
 }
 
-// progressStateText renders one deck state without ranges.
+// progressStateText renders one deck state on one line.
 func progressStateText(lock *cs.LoadedLock, state progressDeckState) string {
 	if !state.totalExact {
 		return "Deck size unknown."
 	}
 
-	var b strings.Builder
-	fmt.Fprintf(&b, "%d card%s", state.total, plural(state.total))
+	parts := []string{fmt.Sprintf("%d cards", state.total)}
 	if state.redYellowUnknown {
-		fmt.Fprintf(&b, "\n%s Reds and yellows: unknown", cardEmojiMarkup(cs.CardYellow))
-	} else if state.redYellowExact {
-		fmt.Fprintf(&b, "\n%s %d red/yellow", cardEmojiMarkup(cs.CardYellow), state.redYellow)
+		parts = append(parts, "red/yellow unknown")
 	} else {
-		fmt.Fprintf(&b, "\n%s ~%d red/yellow (estimated)", cardEmojiMarkup(cs.CardYellow), state.redYellow)
-	}
-	if !state.redYellowUnknown {
-		other := state.total - state.redYellow
-		if state.greensExact {
-			other = state.total - state.greens - state.redYellow
-			if other > 0 {
-				fmt.Fprintf(&b, " · %d green", state.greens)
-			}
+		prefix := ""
+		if !state.redYellowExact {
+			prefix = "~"
 		}
+		other := state.total - state.redYellow
+		parts = append(parts, fmt.Sprintf("%s%d red/yellow", prefix, state.redYellow))
 		if other > 0 {
-			if state.redYellowExact {
-				fmt.Fprintf(&b, " · %d other", other)
-			} else {
-				fmt.Fprintf(&b, " · ~%d other", other)
-			}
+			parts = append(parts, fmt.Sprintf("%s%d other", prefix, other))
 		}
 		if state.total > 0 {
-			fmt.Fprintf(&b, " · %d%% red/yellow", (state.redYellow*100+state.total/2)/state.total)
+			parts = append(parts, fmt.Sprintf("%d%% red/yellow", (state.redYellow*100+state.total/2)/state.total))
 		}
 	}
-	if state.allGreens {
-		b.WriteString("\nAll greens required.")
-	} else if state.greensNeeded > 0 {
-		fmt.Fprintf(&b, "\n%d green%s needed.", state.greensNeeded, plural(state.greensNeeded))
-	} else {
-		b.WriteString("\nGreens needed: 0.")
+	if tally := progressGreenTally(state); tally != "" {
+		parts = append(parts, tally)
 	}
-	if !state.greensExact && !state.redYellowUnknown {
-		b.WriteString("\nOther cards include greens, further doubles, stuns, freezes, and arctics.")
+	return strings.Join(parts, " · ")
+}
+
+// progressGreenTally renders the green progress as drawn over the goal. For an
+// all-greens hidden deck the goal is unknown, so it reads 32/?.
+func progressGreenTally(state progressDeckState) string {
+	progress := state.greensProgress
+	if state.allGreens && state.greensGoal == 0 {
+		return fmt.Sprintf("%s %d/?", cardEmojiMarkup(cs.CardGreen), progress)
 	}
-	if len(state.notes) > 0 {
-		b.WriteString("\n")
-		b.WriteString(strings.Join(state.notes, " "))
+	goal := state.greensGoal
+	if goal <= 0 {
+		goal = state.greensNeeded + progress
 	}
-	return b.String()
+	if goal <= 0 {
+		return ""
+	}
+	progress = min(progress, goal)
+	return fmt.Sprintf("%s %d/%d", cardEmojiMarkup(cs.CardGreen), progress, goal)
 }
 
 // progressDays groups events by UTC day, newest first, and attaches the state
@@ -494,7 +492,6 @@ func progressDaysText(days []progressDay, lock *cs.LoadedLock) string {
 		return "No draws or deck changes in this window."
 	}
 	var sections []string
-	sections = append(sections, "**By day (UTC)**")
 	for _, day := range days {
 		sections = append(sections, progressDayText(day, lock))
 	}
@@ -539,28 +536,11 @@ func progressDayText(day progressDay, lock *cs.LoadedLock) string {
 		}
 		b.WriteString("\n")
 		b.WriteString(strings.Join(parts, " · "))
-		b.WriteString(".")
 	}
 	if tally.reset {
 		b.WriteString("\nDeck reset; the deck restarted from its original cards.")
 	} else if tally.load {
 		b.WriteString("\nLock loaded; the deck started here.")
-	}
-
-	if !tally.reset && !tally.load {
-		switch {
-		case tally.yellowUnknown == 0 && tally.redsDrawn > 0 && tally.redsNet() == 0:
-			b.WriteString("\nNo red progress: yellows added back the reds drawn.")
-		case tally.doubleExact && tally.doubleAdded > 0:
-			b.WriteString(fmt.Sprintf("\nSetback: a double added %d red/yellow card%s.", tally.doubleAdded, plural(tally.doubleAdded)))
-		default:
-			if tally.redsNet() > 0 {
-				b.WriteString(fmt.Sprintf("\nRed progress: %d red%s cleared.", tally.redsNet(), plural(tally.redsNet())))
-			}
-			if tally.greensNet() > 0 {
-				b.WriteString(fmt.Sprintf("\nGreen progress: %d green%s cleared.", tally.greensNet(), plural(tally.greensNet())))
-			}
-		}
 	}
 
 	if day.hasState && !day.isToday {
@@ -598,7 +578,7 @@ func progressDayLabel(key string, today bool) string {
 	if today {
 		return "Today · " + parsed.Format("Mon 2 Jan")
 	}
-	return parsed.Format("Mon 2 Jan 2006")
+	return parsed.Format("Mon 2 Jan")
 }
 
 // progressDayTally is the factual summary of one day.
@@ -766,12 +746,6 @@ func tallyProgressDay(events []cs.LogEntry, infos []progressEventInfo) progressD
 // detailText renders per-card counts and the double up math.
 func (t progressDayTally) detailText() string {
 	var lines []string
-	if t.draws > 0 {
-		lines = append(lines, t.drawLine())
-	}
-	if t.drawnRemoved > 0 {
-		lines = append(lines, fmt.Sprintf("Removed: %d drawn card%s.", t.drawnRemoved, plural(t.drawnRemoved)))
-	}
 	if t.sticky > 0 || t.arctic > 0 {
 		var parts []string
 		if t.sticky > 0 {
@@ -783,18 +757,18 @@ func (t progressDayTally) detailText() string {
 		lines = append(lines, "Returned: "+strings.Join(parts, " · ")+".")
 	}
 	if t.yellowCount > 0 {
-		lines = append(lines, fmt.Sprintf("%s Yellow draws: %d · +%d red · -%d red · net %+d.",
+		lines = append(lines, fmt.Sprintf("%s %d · +%d/-%d · net %+d",
 			cardEmojiMarkup(cs.CardYellow), t.yellowCount, t.yellowRedAdd, t.yellowRedRemove, t.yellowRedNet()))
 	}
 	if t.doubleCount > 0 {
 		if t.doubleExact && t.doubleCount == 1 {
-			lines = append(lines, fmt.Sprintf("%s Double up: %d -> %d, added %d red/yellow, %d other.",
+			lines = append(lines, fmt.Sprintf("%s %d -> %d · +%d red/yellow · %d other",
 				cardEmojiMarkup(cs.CardDoubleUp), t.doubleBefore, t.doubleAfter, t.doubleAdded, t.doubleOther))
 		} else if t.doubleExact {
-			lines = append(lines, fmt.Sprintf("%s %d double ups added %d red/yellow.",
+			lines = append(lines, fmt.Sprintf("%s %d double ups · +%d red/yellow",
 				cardEmojiMarkup(cs.CardDoubleUp), t.doubleCount, t.doubleAdded))
 		} else {
-			lines = append(lines, fmt.Sprintf("%s Double up: the counts around this draw were not stored.",
+			lines = append(lines, fmt.Sprintf("%s counts around this draw were not stored",
 				cardEmojiMarkup(cs.CardDoubleUp)))
 		}
 	}

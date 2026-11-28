@@ -183,7 +183,7 @@ func TestProgressTallyNetsYellows(t *testing.T) {
 	if tally.drawnRemoved != 7 {
 		t.Errorf("drawn removed = %d, want 7", tally.drawnRemoved)
 	}
-	if !strings.Contains(tally.detailText(), "Yellow draws") {
+	if !strings.Contains(tally.detailText(), "net +1") {
 		t.Errorf("detail text missing yellow detail:\n%s", tally.detailText())
 	}
 }
@@ -205,7 +205,7 @@ func TestProgressTallyDoubleDetails(t *testing.T) {
 		t.Fatalf("double tally = %+v", tally)
 	}
 	text := tally.detailText()
-	for _, want := range []string{"163 -> 227", "added 65 red/yellow", "97 other"} {
+	for _, want := range []string{"163 -> 227", "+65 red/yellow", "97 other"} {
 		if !strings.Contains(text, want) {
 			t.Errorf("detail text missing %q:\n%s", want, text)
 		}
@@ -335,12 +335,11 @@ func TestBuildProgressReport(t *testing.T) {
 	for _, want := range []string{
 		"**Progress**",
 		"What's left",
-		"By day (UTC)",
 		"red/yellow",
 		"Greens +0",
 		"Reds",
-		"Double up: 163 -> 227",
-		"added 65 red/yellow",
+		"163 -> 227",
+		"+65 red/yellow",
 		"97 other",
 	} {
 		if !strings.Contains(report, want) {
@@ -469,5 +468,12 @@ func TestProgressRealDoubleSession(t *testing.T) {
 	}
 	if !state.redYellowExact || state.redYellow != 141 {
 		t.Fatalf("current red/yellow = %+v, want 141", state)
+	}
+	text := progressStateText(lock, state)
+	if !strings.Contains(text, "8/?") {
+		t.Errorf("green tally = %q, want 8/?", text)
+	}
+	if strings.Contains(text, "All greens required") || strings.Contains(text, "Other cards include") {
+		t.Errorf("state still contains noisy copy: %q", text)
 	}
 }

@@ -25,7 +25,8 @@ func progressStates(lock *cs.LoadedLock, events []cs.LogEntry, infos []progressE
 		if progressExactStates(lock, events, segments, infos, ends, starts) {
 			key := progressDayKey(now)
 			needed := progressGreensNeededAt(lock, events, now.Add(time.Second))
-			ends[key] = exactProgressState(lock.Deck, lock, needed)
+			progress := progressGreensProgressAt(lock, events, now.Add(time.Second))
+			ends[key] = exactProgressState(lock.Deck, lock, needed, progress)
 			if _, ok := starts[key]; !ok {
 				starts[key] = ends[key]
 			}
@@ -48,7 +49,8 @@ func progressStates(lock *cs.LoadedLock, events []cs.LogEntry, infos []progressE
 	if lock != nil && !lock.Hidden && lock.Deck != nil {
 		key := progressDayKey(now)
 		needed := progressGreensNeededAt(lock, events, now.Add(time.Second))
-		ends[key] = exactProgressState(lock.Deck, lock, needed)
+		progress := progressGreensProgressAt(lock, events, now.Add(time.Second))
+		ends[key] = exactProgressState(lock.Deck, lock, needed, progress)
 		if _, ok := starts[key]; !ok {
 			starts[key] = ends[key]
 		}
@@ -107,7 +109,12 @@ func (m *progressDeckModel) stateAt(at time.Time) progressDeckState {
 	total, totalExact := m.totalAt(at)
 	redYellow, exact, known := m.redYellowAt(at)
 	needed := progressGreensNeededAt(m.lock, m.events, at)
+	progress := progressGreensProgressAt(m.lock, m.events, at)
 	allGreens := m.lock != nil && m.lock.GreensRequired > 1000
+	goal := 0
+	if m.lock != nil && !allGreens {
+		goal = m.lock.GreensRequired
+	}
 
 	state := progressDeckState{
 		total:            total,
@@ -115,6 +122,8 @@ func (m *progressDeckModel) stateAt(at time.Time) progressDeckState {
 		redYellow:        redYellow,
 		redYellowExact:   exact,
 		redYellowUnknown: !known,
+		greensProgress:   progress,
+		greensGoal:       goal,
 		greensNeeded:     needed,
 		allGreens:        allGreens,
 	}
@@ -642,7 +651,7 @@ func forwardProgressExact(lock *cs.LoadedLock, start cs.Deck, events []cs.LogEnt
 		if day != currentDay {
 			if _, ok := starts[day]; !ok {
 				needed := progressGreensNeeded(lock, greensDrawn, greensPutBack)
-				starts[day] = exactProgressState(deck, lock, needed)
+				starts[day] = exactProgressState(deck, lock, needed, greensDrawn-greensPutBack)
 			}
 			currentDay = day
 		}
@@ -663,7 +672,7 @@ func forwardProgressExact(lock *cs.LoadedLock, start cs.Deck, events []cs.LogEnt
 		}
 		if progressDayEnd(events, idx, len(events)) {
 			needed := progressGreensNeeded(lock, greensDrawn, greensPutBack)
-			ends[day] = exactProgressState(deck, lock, needed)
+			ends[day] = exactProgressState(deck, lock, needed, greensDrawn-greensPutBack)
 		}
 	}
 	return deck, true
@@ -838,11 +847,19 @@ func progressSameDeck(left, right cs.Deck) bool {
 }
 
 // exactProgressState derives a state from an exact deck composition.
-func exactProgressState(deck cs.Deck, lock *cs.LoadedLock, greensNeeded int) progressDeckState {
+func exactProgressState(deck cs.Deck, lock *cs.LoadedLock, greensNeeded, greensProgress int) progressDeckState {
 	total := deck.Total()
 	greens := deck.Greens()
 	ry := deck.Reds() + deck.Yellows()
 	allGreens := lock != nil && lock.GreensRequired > 1000
+	goal := 0
+	if lock != nil {
+		if allGreens {
+			goal = greensProgress + greens
+		} else {
+			goal = lock.GreensRequired
+		}
+	}
 	return progressDeckState{
 		cards:          deck.Clone(),
 		total:          total,
@@ -851,6 +868,8 @@ func exactProgressState(deck cs.Deck, lock *cs.LoadedLock, greensNeeded int) pro
 		redYellowExact: true,
 		greens:         greens,
 		greensExact:    true,
+		greensProgress: greensProgress,
+		greensGoal:     goal,
 		greensNeeded:   greensNeeded,
 		allGreens:      allGreens,
 	}
@@ -873,6 +892,19 @@ func progressGreensNeeded(lock *cs.LoadedLock, drawn, putBack int) int {
 func progressGreensNeededAt(lock *cs.LoadedLock, events []cs.LogEntry, at time.Time) int {
 	if lock == nil || lock.GreensRequired > 1000 {
 		return -1
+	}
+	progress := progressGreensProgressAt(lock, events, at)
+	if progress >= lock.GreensRequired {
+		return 0
+	}
+	return lock.GreensRequired - progress
+}
+
+// progressGreensProgressAt counts net green progress since the most recent
+// reset or load.
+func progressGreensProgressAt(lock *cs.LoadedLock, events []cs.LogEntry, at time.Time) int {
+	if lock == nil {
+		return 0
 	}
 	start := 0
 	for idx, entry := range events {
@@ -899,7 +931,10 @@ func progressGreensNeededAt(lock *cs.LoadedLock, events []cs.LogEntry, at time.T
 			}
 		}
 	}
-	return progressGreensNeeded(lock, drawn, putBack)
+	if drawn < putBack {
+		return 0
+	}
+	return drawn - putBack
 }
 
 // progressDrawCard returns the card named by a draw event.
