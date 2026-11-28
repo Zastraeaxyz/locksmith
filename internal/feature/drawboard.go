@@ -504,8 +504,8 @@ func totalsLine(entries []drawEntry, lastCard cs.Card, remaining int, hasRemaini
 	}
 
 	parts := []string{
-		fmt.Sprintf("%s %d red", cardEmojiMarkup(cs.CardRed), reds),
-		fmt.Sprintf("%s %d green", cardEmojiMarkup(cs.CardGreen), greens),
+		fmt.Sprintf("%s %s red", cardEmojiMarkup(cs.CardRed), signedRemoval(reds)),
+		fmt.Sprintf("%s %s green", cardEmojiMarkup(cs.CardGreen), signedRemoval(greens)),
 	}
 	if yellowDelta != 0 {
 		parts = append(parts, fmt.Sprintf("%s %+d red", cardEmojiMarkup(cs.CardYellow), yellowDelta))

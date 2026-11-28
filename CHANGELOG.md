@@ -6,11 +6,11 @@ Notable changes to Locksmith, newest first.
 
 ### Added
 
-- `/lock progress` shows a day-by-day UTC report for a card lock: net green progress, net red progress, red/yellow pool changes, total deck changes, per-card draws, yellow details, and the double up math. A visible deck is reconstructed exactly from the live composition. A hidden deck uses stored deck counts, and a double up is exact when the counts before and after it were recorded. `days` limits the report, and `ref` picks another card lock.
+- `/lock progress` shows a day-by-day UTC report for a card lock: signed green and red deck changes, total deck changes, per-card draws, yellow details, and the double up math. Cards removed from the deck are negative and cards added are positive. The red/yellow pool change is no longer shown. A visible deck is reconstructed exactly from the live composition. A hidden deck uses stored deck counts, and a double up is exact when the counts before and after it were recorded. `days` limits the report, and `ref` picks another card lock.
 
 ### Changed
 
-- `/lock progress` daily blocks are more compact: the green tally replaces the all-greens note, the per-day card breakdown and removed-card line are gone, the UTC header is removed, and the day label omits the year. The double up line carries the exact before and after counts.
+- `/lock progress` daily blocks are more compact: the green tally replaces the all-greens note, the per-day card breakdown and removed-card line are gone, the UTC header is removed, and the day label omits the year. Deck changes use signed deltas, the draw board summary signs red and green removals, and the whole-lock draw tally is labeled `Drawn`.
 - Locksmith stores small deck snapshots for active locks, so `/lock progress` can report exact deck and double up counts after a lock has been running. Hidden decks store only the count, never their card faces.
 - `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.
 - A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock and announces the first draw after the freeze. At 4x the draw interval, the longest a freeze card holds, it checks again shortly and pings only once the freeze is actually over. The message that asked members to run `/lock notify` is gone.

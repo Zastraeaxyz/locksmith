@@ -17,7 +17,7 @@
     "method": "PATCH",
     "path": "/api/v9/webhooks/1574588415783997481/interaction-token/messages/@original",
     "body": {
-      "content": "**Progressive 2** (ID `731d2fb0-92f1-3a27-adf2-5268501f80bf`)\n:locked: Locked · visible · locked for 3d 3hrs\nLoaded: \u003ct:1795510800:f\u003e\n\n**What's left**\n3 cards · 1 red/yellow · 2 other · 33% red/yellow · \u003c:green:900000000000000001\u003e 1/100\n\n**This lock** · 2 draws\nSeen in the log: \u003c:green:900000000000000001\u003e 1 · \u003c:red:900000000000000002\u003e 1 · :key: keyholder drew 1\n\n**Thu 26 Nov** · 2 draws · loaded\nLock loaded; the deck started here.\nLeft: 3 cards · 1 red/yellow · 2 other · 33% red/yellow · \u003c:green:900000000000000001\u003e 1/100\n\n**Wed 25 Nov** · no draws"
+      "content": "**Progressive 2** (ID `731d2fb0-92f1-3a27-adf2-5268501f80bf`)\n:locked: Locked · visible · locked for 3d 3hrs\nLoaded: \u003ct:1795510800:f\u003e\n\n**What's left**\n3 cards · 1 red/yellow · 2 other · 33% red/yellow · \u003c:green:900000000000000001\u003e 1/100\n\n**This lock** · 2 draws\nDrawn: \u003c:green:900000000000000001\u003e -1 · \u003c:red:900000000000000002\u003e -1 · :key: keyholder drew 1\n\n**Thu 26 Nov** · 2 draws · loaded\nLock loaded; the deck started here.\nLeft: 3 cards · 1 red/yellow · 2 other · 33% red/yellow · \u003c:green:900000000000000001\u003e 1/100\n\n**Wed 25 Nov** · no draws"
     }
   }
 ]

@@ -380,7 +380,7 @@ func progressTotalsText(lock *cs.LoadedLock, events []cs.LogEntry) string {
 	text := "**This lock** · " + strings.Join(parts, " · ")
 	seen := tallyProgressDay(events, nil)
 	if line := seen.drawLine(); line != "" {
-		text += "\nSeen in the log: " + line
+		text += "\nDrawn: " + line
 	}
 	return text
 }
@@ -517,20 +517,15 @@ func progressDayText(day progressDay, lock *cs.LoadedLock) string {
 	}
 
 	if !tally.reset && !tally.load && (day.hasStart || day.hasState) {
-		parts := []string{fmt.Sprintf("Greens %+d", tally.greensNet())}
+		parts := []string{fmt.Sprintf("Greens %s", signedDelta(-tally.greensNet()))}
 		if tally.yellowUnknown > 0 {
 			parts = append(parts, "Reds ? net")
 		} else {
 			// Reds is progress: positive means reds were cleared.
-			parts = append(parts, fmt.Sprintf("Reds %+d net", tally.redsNet()))
-		}
-		if pool, ok := progressPoolChange(day); ok {
-			parts = append(parts, fmt.Sprintf("Pool %+d", pool))
-		} else {
-			parts = append(parts, "Pool ?")
+			parts = append(parts, fmt.Sprintf("Reds %s net", signedDelta(-tally.redsNet())))
 		}
 		if deck, ok := progressDeckChange(day); ok {
-			parts = append(parts, fmt.Sprintf("Deck %+d", deck))
+			parts = append(parts, fmt.Sprintf("Deck %s", signedDelta(deck)))
 		} else {
 			parts = append(parts, "Deck ?")
 		}
@@ -552,14 +547,6 @@ func progressDayText(day progressDay, lock *cs.LoadedLock) string {
 		b.WriteString(text)
 	}
 	return b.String()
-}
-
-// progressPoolChange reports the red/yellow pool change for one day.
-func progressPoolChange(day progressDay) (int, bool) {
-	if !day.hasStart || !day.hasState || !day.start.redYellowExact || !day.state.redYellowExact {
-		return 0, false
-	}
-	return day.state.redYellow - day.start.redYellow, true
 }
 
 // progressDeckChange reports the total deck change for one day.
@@ -757,29 +744,29 @@ func (t progressDayTally) detailText() string {
 		lines = append(lines, "Returned: "+strings.Join(parts, " · ")+".")
 	}
 	if t.yellowCount > 0 {
-		lines = append(lines, fmt.Sprintf("%s %d · +%d/-%d · net %+d",
-			cardEmojiMarkup(cs.CardYellow), t.yellowCount, t.yellowRedAdd, t.yellowRedRemove, t.yellowRedNet()))
+		lines = append(lines, fmt.Sprintf("%s %d · +%d/-%d · net %s",
+			cardEmojiMarkup(cs.CardYellow), t.yellowCount, t.yellowRedAdd, t.yellowRedRemove, signedDelta(t.yellowRedNet())))
 	}
 	if t.doubleCount > 0 {
 		if t.doubleExact && t.doubleCount == 1 {
-			lines = append(lines, fmt.Sprintf("%s %d -> %d · +%d red/yellow · %d other",
-				cardEmojiMarkup(cs.CardDoubleUp), t.doubleBefore, t.doubleAfter, t.doubleAdded, t.doubleOther))
+			lines = append(lines, fmt.Sprintf("%s %d -> %d · %s red/yellow · %d other",
+				cardEmojiMarkup(cs.CardDoubleUp), t.doubleBefore, t.doubleAfter, signedDelta(t.doubleAdded), t.doubleOther))
 		} else if t.doubleExact {
-			lines = append(lines, fmt.Sprintf("%s %d double ups · +%d red/yellow",
-				cardEmojiMarkup(cs.CardDoubleUp), t.doubleCount, t.doubleAdded))
+			lines = append(lines, fmt.Sprintf("%s %d double ups · %s red/yellow",
+				cardEmojiMarkup(cs.CardDoubleUp), t.doubleCount, signedDelta(t.doubleAdded)))
 		} else {
 			lines = append(lines, fmt.Sprintf("%s counts around this draw were not stored",
 				cardEmojiMarkup(cs.CardDoubleUp)))
 		}
 	}
 	if t.putGreenBack > 0 {
-		lines = append(lines, fmt.Sprintf("Put green back: %s %d.", cardEmojiMarkup(cs.CardGreen), t.putGreenBack))
+		lines = append(lines, fmt.Sprintf("Put green back: %s +%d.", cardEmojiMarkup(cs.CardGreen), t.putGreenBack))
 	}
 	if len(t.explicitAdds) > 0 {
-		lines = append(lines, "Added: "+progressCardCounts(t.explicitAdds)+".")
+		lines = append(lines, "Added: "+progressCardCounts(t.explicitAdds, "+")+".")
 	}
 	if len(t.explicitRemoves) > 0 {
-		lines = append(lines, "Removed: "+progressCardCounts(t.explicitRemoves)+".")
+		lines = append(lines, "Removed: "+progressCardCounts(t.explicitRemoves, "-")+".")
 	}
 	lines = append(lines, t.notes...)
 	return strings.Join(lines, "\n")
@@ -794,14 +781,17 @@ func (t progressDayTally) drawLine() string {
 		cs.CardPink, cs.CardGoAgain,
 	}
 	for _, card := range order {
+		if card == cs.CardSticky || card == cs.CardArctic {
+			continue
+		}
 		if card == cs.CardYellow {
 			if t.yellowCount > 0 {
-				parts = append(parts, fmt.Sprintf("%s %d", cardEmojiMarkup(card), t.yellowCount))
+				parts = append(parts, fmt.Sprintf("%s -%d", cardEmojiMarkup(card), t.yellowCount))
 			}
 			continue
 		}
 		if count := t.counts[card]; count > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", cardEmojiMarkup(card), count))
+			parts = append(parts, fmt.Sprintf("%s -%d", cardEmojiMarkup(card), count))
 		}
 	}
 	if t.keyholderDraws > 0 {
@@ -813,13 +803,13 @@ func (t progressDayTally) drawLine() string {
 	return strings.Join(parts, " · ")
 }
 
-func progressCardCounts(counts map[cs.Card]int) string {
+func progressCardCounts(counts map[cs.Card]int, sign string) string {
 	var parts []string
 	seen := make(map[cs.Card]bool, len(counts))
 	for _, card := range deckCardOrder {
 		seen[card] = true
 		if count := counts[card]; count > 0 {
-			parts = append(parts, fmt.Sprintf("%s %d", cardEmojiMarkup(card), count))
+			parts = append(parts, fmt.Sprintf("%s %s%d", cardEmojiMarkup(card), sign, count))
 		}
 	}
 	extra := make([]cs.Card, 0, len(counts))
@@ -830,9 +820,23 @@ func progressCardCounts(counts map[cs.Card]int) string {
 	}
 	sort.Slice(extra, func(a, b int) bool { return string(extra[a]) < string(extra[b]) })
 	for _, card := range extra {
-		parts = append(parts, fmt.Sprintf("%s %d", cardEmojiMarkup(card), counts[card]))
+		parts = append(parts, fmt.Sprintf("%s %s%d", cardEmojiMarkup(card), sign, counts[card]))
 	}
 	return strings.Join(parts, " · ")
+}
+
+func signedRemoval(count int) string {
+	if count == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("-%d", count)
+}
+
+func signedDelta(value int) string {
+	if value == 0 {
+		return "0"
+	}
+	return fmt.Sprintf("%+d", value)
 }
 
 func intOptionOr(options []*discordgo.ApplicationCommandInteractionDataOption, name string, fallback int) int {

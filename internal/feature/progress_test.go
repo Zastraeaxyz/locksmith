@@ -336,7 +336,7 @@ func TestBuildProgressReport(t *testing.T) {
 		"**Progress**",
 		"What's left",
 		"red/yellow",
-		"Greens +0",
+		"Greens 0",
 		"Reds",
 		"163 -> 227",
 		"+65 red/yellow",
@@ -475,5 +475,20 @@ func TestProgressRealDoubleSession(t *testing.T) {
 	}
 	if strings.Contains(text, "All greens required") || strings.Contains(text, "Other cards include") {
 		t.Errorf("state still contains noisy copy: %q", text)
+	}
+}
+
+func TestProgressExplicitEditsAreSigned(t *testing.T) {
+	events := []cs.LogEntry{
+		{EventType: 15, Card: "r", Amount: 3, Actor: 1},
+		{EventType: 16, Card: "g", Amount: 1, Actor: 1},
+	}
+	tally := tallyProgressDay(events, []progressEventInfo{{}, {}})
+	text := tally.detailText()
+	if !strings.Contains(text, "Added: "+cardEmojiMarkup(cs.CardRed)+" +3") {
+		t.Errorf("added line is not signed:\n%s", text)
+	}
+	if !strings.Contains(text, "Removed: "+cardEmojiMarkup(cs.CardGreen)+" -1") {
+		t.Errorf("removed line is not signed:\n%s", text)
 	}
 }

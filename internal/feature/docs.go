@@ -112,7 +112,7 @@ var docsPages = []docsPage{
 			"Run `/lock deck` to see the deck composition. Drawn cards show their revealed faces, and cards still in a hidden deck show card backs. `ref:` picks another active card lock, and `public:true` posts the grid in the channel.",
 			"",
 			"**Progress and estimates**",
-			"`/lock progress` gives one line per UTC day: green progress, red net progress, the red/yellow pool change, and the total deck change. Greens and reds are progress, so a positive red number means reds were cleared. Pool and deck are changes, so a negative pool or deck number means fewer cards. The green tally is drawn over the goal, or drawn over `?` when an all-greens deck hides its total. It also lists yellow details and the double up math. `days:N` limits the report, and `ref:` picks an active card lock.",
+			"`/lock progress` gives one line per UTC day: signed green and red deck changes, plus the total deck change. Cards removed from the deck are negative and cards added are positive. The green tally is drawn over the goal, or drawn over `?` when an all-greens deck hides its total. It also lists yellow details and the double up math. `days:N` limits the report, and `ref:` picks an active card lock.",
 			"A visible deck is walked back from the live composition, so every day is exact. A hidden deck uses stored deck counts. Locksmith records the current count when it sees a lock, which supplies the before and after numbers around a double up. Without those numbers, the affected pool is marked unknown rather than given a range. Hidden card faces are never read.",
 			"",
 			"**When it is ready**",
