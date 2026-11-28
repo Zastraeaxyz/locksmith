@@ -114,7 +114,7 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 		return f.renderBoard(s, i, session, lock, true, drawBlockedMessage(lock, nil, now))
 	}
 
-	result, updated, err := drawPick(ctx, client, session, lock, bot.UserID(i) != session.ownerID)
+	result, updated, err := f.drawPick(ctx, client, session, lock, bot.UserID(i) != session.ownerID)
 	if err != nil {
 		// Leave the board open when draws may still be available so the member
 		// can retry.
@@ -140,7 +140,7 @@ func (f *Feature) drawNext(ctx context.Context, s *discordgo.Session, i *discord
 // result and the updated lock. The lock is read back from the API after the
 // pick, so the board never renders the pre-pick state when the pick response
 // omits its lock.
-func drawPick(ctx context.Context, client *cs.Client, session *drawSession, lock *cs.LoadedLock, byKeyholder bool) (*cs.PickResult, *cs.LoadedLock, error) {
+func (f *Feature) drawPick(ctx context.Context, client *cs.Client, session *drawSession, lock *cs.LoadedLock, byKeyholder bool) (*cs.PickResult, *cs.LoadedLock, error) {
 	result, err := client.Pick(ctx, lock.ID)
 	if err != nil {
 		return nil, lock, err
@@ -156,6 +156,7 @@ func drawPick(ctx context.Context, client *cs.Client, session *drawSession, lock
 		updated = lock
 	}
 	session.setLock(updated)
+	f.observeLock(ctx, updated)
 	session.add(drawEntry{
 		card:        result.Card,
 		dice:        result.Dice,
@@ -182,7 +183,7 @@ func (f *Feature) drawAuto(ctx context.Context, s *discordgo.Session, i *discord
 	stop := ""
 
 	for canDrawAgain(lock) {
-		result, updated, err := drawPick(ctx, client, session, lock, byKeyholder)
+		result, updated, err := f.drawPick(ctx, client, session, lock, byKeyholder)
 		if err != nil {
 			stop = f.apiFailure(ctx, session.ownerID, err)
 			break

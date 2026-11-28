@@ -6,10 +6,11 @@ Notable changes to Locksmith, newest first.
 
 ### Added
 
-- `/lock progress` shows a day-by-day UTC report for a card lock: the cards drawn, the cards added or removed, and the deck at the end of each day. A visible deck is reconstructed exactly from the live composition. A hidden deck is estimated from its configured size and the cards seen, with ranges when doubles or random yellows make the exact count unknowable. `days` limits the report, and `ref` picks another card lock.
+- `/lock progress` shows a day-by-day UTC report for a card lock: net green progress, net red progress, red/yellow pool changes, and total deck changes. A visible deck is reconstructed exactly from the live composition. A hidden deck uses stored deck counts, and a double up is exact when the counts before and after it were recorded. `days` limits the report, `ref` picks another card lock, and `verbose` adds per-card draws, yellow details, and the double up math.
 
 ### Changed
 
+- Locksmith stores small deck snapshots for active locks, so `/lock progress` can report exact deck and double up counts after a lock has been running. Hidden decks store only the count, never their card faces.
 - `/lock status` and `/lock draw` show the maximum a freeze can last, 4x the draw interval, alongside how long the lock has been frozen.
 - A freeze no longer turns draw notifications off. Locksmith keeps watching a frozen lock and announces the first draw after the freeze. At 4x the draw interval, the longest a freeze card holds, it checks again shortly and pings only once the freeze is actually over. The message that asked members to run `/lock notify` is gone.
 - `/lock notify` accepts a frozen card lock, and Locksmith restores a missing watch at startup for members who did not turn notifications off on purpose.

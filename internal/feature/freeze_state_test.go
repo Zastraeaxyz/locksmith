@@ -160,8 +160,9 @@ func TestDrawPickRefreshesFromLoaded(t *testing.T) {
 	client := freezeTestClient(t, api)
 	session := &drawSession{}
 	lock := &cs.LoadedLock{ID: "lock-1", Type: "card", Picks: 1, LockeeID: "me"}
+	f := &Feature{log: slog.Default(), now: time.Now}
 
-	result, updated, err := drawPick(ctx, client, session, lock, false)
+	result, updated, err := f.drawPick(ctx, client, session, lock, false)
 	if err != nil {
 		t.Fatalf("drawPick: %v", err)
 	}

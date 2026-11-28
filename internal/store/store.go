@@ -13,7 +13,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 // Store is the SQLite-backed persistence layer.
 type Store struct {
@@ -105,6 +105,20 @@ type NotificationMessage struct {
 	Kind          string
 	CreatedAt     time.Time
 	DeleteAt      time.Time
+}
+
+// LockObservation is one snapshot of an active lock's deck. CardCount is the
+// current number of cards left, which ChastiSafe reports even for a hidden
+// deck. DeckJSON is stored only for a visible deck. Draws is the lock's recent
+// draw sequence, used to avoid recording the same state twice.
+type LockObservation struct {
+	LockID     string
+	ObservedAt time.Time
+	CardCount  int
+	DeckTotal  int
+	DeckJSON   string
+	Draws      string
+	Hidden     bool
 }
 
 // Document kinds stored in user_documents.
@@ -288,6 +302,27 @@ func migrate(ctx context.Context, db *sql.DB) error {
 				discord_user_id TEXT PRIMARY KEY,
 				created_at      INTEGER NOT NULL DEFAULT (unixepoch())
 			)`); err != nil {
+			return err
+		}
+	}
+
+	if version < 7 {
+		if _, err := tx.ExecContext(ctx, `
+			CREATE TABLE IF NOT EXISTS lock_observations (
+				id          INTEGER PRIMARY KEY AUTOINCREMENT,
+				lock_id     TEXT NOT NULL,
+				observed_at INTEGER NOT NULL,
+				cardcount   INTEGER NOT NULL,
+				deck_total  INTEGER NOT NULL,
+				deck_json   TEXT NOT NULL DEFAULT '',
+				draws       TEXT NOT NULL DEFAULT '',
+				hidden      INTEGER NOT NULL DEFAULT 0
+			)`); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx, `
+			CREATE INDEX IF NOT EXISTS idx_lock_observations_lock_time
+			ON lock_observations(lock_id, observed_at)`); err != nil {
 			return err
 		}
 	}
@@ -670,6 +705,20 @@ func scanNotification(row scanner) (*Notification, error) {
 	return &n, nil
 }
 
+func unixMillis(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixMilli()
+}
+
+func boolInt(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
+}
+
 // unixSeconds converts a stored moment to unix seconds, with zero meaning the
 // moment is not set.
 func unixSeconds(t time.Time) int64 {
@@ -691,6 +740,99 @@ func scanNotificationMessage(row scanner) (NotificationMessage, error) {
 	m.CreatedAt = time.Unix(createdAt, 0).UTC()
 	m.DeleteAt = time.Unix(deleteAt, 0).UTC()
 	return m, nil
+}
+
+// RecordLockObservation stores a deck snapshot when it differs from the latest
+// one. A repeated poll of an unchanged lock does not create a row.
+func (s *Store) RecordLockObservation(ctx context.Context, obs LockObservation) error {
+	if obs.LockID == "" {
+		return errors.New("store: lock observation has no lock ID")
+	}
+	latest, err := s.LatestLockObservation(ctx, obs.LockID)
+	if err != nil {
+		return err
+	}
+	if latest != nil &&
+		latest.CardCount == obs.CardCount &&
+		latest.DeckTotal == obs.DeckTotal &&
+		latest.DeckJSON == obs.DeckJSON &&
+		latest.Draws == obs.Draws &&
+		latest.Hidden == obs.Hidden {
+		return nil
+	}
+	_, err = s.db.ExecContext(ctx, `
+		INSERT INTO lock_observations (
+			lock_id, observed_at, cardcount, deck_total, deck_json, draws, hidden
+		) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		obs.LockID, unixMillis(obs.ObservedAt), obs.CardCount, obs.DeckTotal,
+		obs.DeckJSON, obs.Draws, boolInt(obs.Hidden),
+	)
+	return err
+}
+
+// LockObservations returns a lock's observations since a moment, oldest first.
+func (s *Store) LockObservations(ctx context.Context, lockID string, since time.Time) ([]LockObservation, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT lock_id, observed_at, cardcount, deck_total, deck_json, draws, hidden
+		FROM lock_observations
+		WHERE lock_id = ? AND observed_at >= ?
+		ORDER BY observed_at`,
+		lockID, unixMillis(since))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []LockObservation
+	for rows.Next() {
+		var (
+			obs      LockObservation
+			observed int64
+			hidden   int
+		)
+		if err := rows.Scan(&obs.LockID, &observed, &obs.CardCount, &obs.DeckTotal,
+			&obs.DeckJSON, &obs.Draws, &hidden); err != nil {
+			return nil, err
+		}
+		obs.ObservedAt = time.UnixMilli(observed).UTC()
+		obs.Hidden = hidden != 0
+		out = append(out, obs)
+	}
+	return out, rows.Err()
+}
+
+// LatestLockObservation returns a lock's newest observation, or (nil, nil).
+func (s *Store) LatestLockObservation(ctx context.Context, lockID string) (*LockObservation, error) {
+	row := s.db.QueryRowContext(ctx, `
+		SELECT lock_id, observed_at, cardcount, deck_total, deck_json, draws, hidden
+		FROM lock_observations
+		WHERE lock_id = ?
+		ORDER BY observed_at DESC
+		LIMIT 1`, lockID)
+
+	var (
+		obs      LockObservation
+		observed int64
+		hidden   int
+	)
+	err := row.Scan(&obs.LockID, &observed, &obs.CardCount, &obs.DeckTotal,
+		&obs.DeckJSON, &obs.Draws, &hidden)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	obs.ObservedAt = time.UnixMilli(observed).UTC()
+	obs.Hidden = hidden != 0
+	return &obs, nil
+}
+
+// PruneLockObservations removes snapshots older than a moment.
+func (s *Store) PruneLockObservations(ctx context.Context, before time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM lock_observations WHERE observed_at < ?`, unixMillis(before))
+	return err
 }
 
 // SaveDocument inserts or replaces a member's markdown document.

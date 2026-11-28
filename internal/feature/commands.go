@@ -163,7 +163,7 @@ func lockCommand() *discordgo.ApplicationCommand {
 			{
 				Type:        discordgo.ApplicationCommandOptionSubCommand,
 				Name:        "progress",
-				Description: "Show a day-by-day deck report for a card lock",
+				Description: "Show net daily progress for a card lock",
 				Options: []*discordgo.ApplicationCommandOption{
 					{
 						Type:         discordgo.ApplicationCommandOptionString,
@@ -179,6 +179,12 @@ func lockCommand() *discordgo.ApplicationCommand {
 						Required:    false,
 						MinValue:    intPtrFloat(1),
 						MaxValue:    float64(progressDayLimit),
+					},
+					{
+						Type:        discordgo.ApplicationCommandOptionBoolean,
+						Name:        "verbose",
+						Description: "Show per-card counts, yellow details, and double up math",
+						Required:    false,
 					},
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
@@ -418,6 +424,7 @@ func (f *Feature) handleLockStatus(ctx context.Context, s *discordgo.Session, i 
 	// has just ended is not shown as active.
 	now := f.now()
 	own, freeze := f.freshLocks(ctx, client, ownLocks(locks, cred.ChastiSafeID), now)
+	f.observeLocks(ctx, own)
 	views := ownLockViews(own, cred.ChastiSafeID)
 	if len(views) == 0 {
 		return bot.EditChunks(s, i, "You have no active ChastiSafe locks.", !public)

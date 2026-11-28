@@ -46,7 +46,7 @@ user-install button, and a link to this repository.
 | `/lock notify [enabled]` | Turns draw and check-in reminders on (default) or off for locks loaded in the ChastiSafe app; locks loaded with `/lock load` are watched automatically, and a missing watch is restored on startup |
 | `/lock log [full] [ref] [public]` | The last draws (at least 10, condensed into icons), the full log, a chosen lock, or a public reply; `ref` suggests active and previous locks |
 | `/lock deck [ref] [public]` | Shows the known deck composition as a grid of icons: revealed cards show their faces, and cards still in a hidden deck show their backs; `ref` suggests active card locks |
-| `/lock progress [ref] [days] [public]` | Shows a day-by-day UTC report of draws, cards added or removed, and the deck at the end of each day; a visible deck is exact, a hidden deck is estimated; `days` limits the report |
+| `/lock progress [ref] [days] [verbose] [public]` | Shows a day-by-day UTC report of net green and red progress, red/yellow pool changes, and deck changes; a visible deck is exact, a hidden deck uses stored deck counts; `verbose` adds per-card draws, yellow details, and double up math |
 | `/history [include_test] [include_old] [public]` | Your completed locks, newest first, with lock codes in a private reply |
 | `/profile view [user]` | Shares a member's markdown profile in the chat |
 | `/profile edit` | Opens a prefilled modal to set your profile |

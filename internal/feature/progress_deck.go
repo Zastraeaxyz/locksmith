@@ -1,94 +1,565 @@
 package feature
 
-// The deck model underneath progress reports. It walks a lock log forwards to
-// estimate a hidden deck, and backwards from a visible deck to recover exact
-// daily states. The command and its rendering live in progress.go.
+// The deck model underneath progress reports. A visible deck is walked back
+// from the live composition, so every day is exact. A hidden deck is anchored
+// by stored observations of its current card count. Those observations supply
+// the before and after totals that make a double up exact.
 
 import (
+	"sort"
 	"time"
 
 	cs "github.com/zastraeaxyz/chastisafe-go"
+
+	"locksmith/internal/store"
 )
 
-// progressStates builds the end-of-day state for every day with events. Exact
-// reconstruction is used when the live deck is visible. A hidden deck, or a
-// log that cannot be walked back because of an unknown card, falls back to the
-// estimate path.
-func progressStates(lock *cs.LoadedLock, events []cs.LogEntry, infos []progressEventInfo, now time.Time) map[string]progressDeckState {
-	states := make(map[string]progressDeckState)
+// progressStates builds the deck state at the start and end of every day with
+// events. Exact reconstruction is used when the live deck is visible.
+func progressStates(lock *cs.LoadedLock, events []cs.LogEntry, infos []progressEventInfo, observations []store.LockObservation, now time.Time) (map[string]progressDeckState, map[string]progressDeckState) {
+	ends := make(map[string]progressDeckState)
+	starts := make(map[string]progressDeckState)
 	segments := progressSegments(events)
 
 	if lock != nil && !lock.Hidden && lock.Deck != nil {
-		if progressExactStates(lock, events, segments, infos, states) {
+		if progressExactStates(lock, events, segments, infos, ends, starts) {
 			key := progressDayKey(now)
-			needed := progressCurrentGreensNeeded(lock, events)
-			states[key] = exactProgressState(lock.Deck, lock, needed)
-			return states
+			needed := progressGreensNeededAt(lock, events, now.Add(time.Second))
+			ends[key] = exactProgressState(lock.Deck, lock, needed)
+			if _, ok := starts[key]; !ok {
+				starts[key] = ends[key]
+			}
+			return ends, starts
 		}
-		// The exact walk failed. Rebuild every day as an estimate, then make
-		// the current day exact from the live deck.
-		states = make(map[string]progressDeckState)
+		// The exact walk failed. Fall through to the observation model, but
+		// make the current state exact from the live deck.
+		for idx := range infos {
+			infos[idx] = progressEventInfo{}
+		}
+		ends = make(map[string]progressDeckState)
+		starts = make(map[string]progressDeckState)
 	}
 
-	progressEstimateStates(lock, events, segments, infos, states)
-	key := progressDayKey(now)
-	if _, ok := states[key]; !ok {
-		if latest, ok := latestProgressState(states, key); ok {
-			states[key] = latest
-		} else if lock != nil {
-			needed := progressCurrentGreensNeeded(lock, events)
-			est := newProgressEstimate(lock)
-			states[key] = est.state(lock, needed)
-		}
-	}
+	model := newProgressDeckModel(lock, events, observations, now)
+	model.infos = infos
+	model.buildDoubleAnchors()
+	model.buildDays(ends, starts)
+
 	if lock != nil && !lock.Hidden && lock.Deck != nil {
-		needed := progressCurrentGreensNeeded(lock, events)
-		states[key] = exactProgressState(lock.Deck, lock, needed)
+		key := progressDayKey(now)
+		needed := progressGreensNeededAt(lock, events, now.Add(time.Second))
+		ends[key] = exactProgressState(lock.Deck, lock, needed)
+		if _, ok := starts[key]; !ok {
+			starts[key] = ends[key]
+		}
 	}
-	return states
+	return ends, starts
 }
 
-// progressLiveState builds the current state without a log. A visible deck is
-// exact; a hidden deck uses the configured size and the greens requirement.
-func progressLiveState(lock *cs.LoadedLock) (progressDeckState, bool) {
-	if lock == nil {
-		return progressDeckState{}, false
-	}
-	needed := progressGreensNeeded(lock, 0, 0)
-	if !lock.Hidden && lock.Deck != nil {
-		return exactProgressState(lock.Deck, lock, needed), true
-	}
-	est := newProgressEstimate(lock)
-	return est.state(lock, needed), true
+// progressDeckModel is the observation-anchored view of a hidden deck.
+type progressDeckModel struct {
+	lock         *cs.LoadedLock
+	events       []cs.LogEntry
+	observations []store.LockObservation
+	now          time.Time
+	infos        []progressEventInfo
+	anchors      map[int]progressEventInfo
 }
 
-// latestProgressState returns the newest day state at or before the given key.
-func latestProgressState(states map[string]progressDeckState, today string) (progressDeckState, bool) {
-	best := ""
-	for key := range states {
-		if key > today {
+func newProgressDeckModel(lock *cs.LoadedLock, events []cs.LogEntry, observations []store.LockObservation, now time.Time) *progressDeckModel {
+	sort.SliceStable(observations, func(a, b int) bool {
+		return observations[a].ObservedAt.Before(observations[b].ObservedAt)
+	})
+	return &progressDeckModel{
+		lock:         lock,
+		events:       events,
+		observations: observations,
+		now:          now,
+		anchors:      make(map[int]progressEventInfo),
+	}
+}
+
+// buildDays records the start and end state for every day with events and for
+// the current day.
+func (m *progressDeckModel) buildDays(ends, starts map[string]progressDeckState) {
+	keys := make(map[string]bool, len(m.events)+1)
+	today := progressDayKey(m.now)
+	keys[today] = true
+	for _, entry := range m.events {
+		keys[progressDayKey(entry.Timestamp.Time)] = true
+	}
+	for key := range keys {
+		start, err := time.Parse(progressDayLayout, key)
+		if err != nil {
 			continue
 		}
-		if best == "" || key > best {
-			best = key
+		end := start.AddDate(0, 0, 1)
+		if key == today {
+			end = m.now
 		}
+		starts[key] = m.stateAt(start)
+		ends[key] = m.stateAt(end)
 	}
-	if best == "" {
-		return progressDeckState{}, false
-	}
-	return states[best], true
 }
 
-// progressExactStates walks the visible current deck backwards through each
-// segment, then forwards from the recovered original deck to record every day.
-func progressExactStates(lock *cs.LoadedLock, events []cs.LogEntry, segments []progressSegment, infos []progressEventInfo, states map[string]progressDeckState) bool {
+// stateAt builds the deck state at one moment.
+func (m *progressDeckModel) stateAt(at time.Time) progressDeckState {
+	total, totalExact := m.totalAt(at)
+	redYellow, exact, known := m.redYellowAt(at)
+	needed := progressGreensNeededAt(m.lock, m.events, at)
+	allGreens := m.lock != nil && m.lock.GreensRequired > 1000
+
+	state := progressDeckState{
+		total:            total,
+		totalExact:       totalExact,
+		redYellow:        redYellow,
+		redYellowExact:   exact,
+		redYellowUnknown: !known,
+		greensNeeded:     needed,
+		allGreens:        allGreens,
+	}
+	if !totalExact {
+		state.notes = append(state.notes, "No deck count was stored for this moment.")
+	}
+	if !known {
+		state.notes = append(state.notes, "The red and yellow count is unknown here.")
+	} else if !exact && !totalExact {
+		state.notes = append(state.notes, "The red and yellow count is estimated.")
+	}
+	return state
+}
+
+// totalAt reports the deck total at a moment, using the nearest observation
+// and the known effects of events between them.
+func (m *progressDeckModel) totalAt(at time.Time) (int, bool) {
+	if m.lock != nil && !at.Before(m.now.Add(-time.Second)) {
+		return progressLiveTotal(m.lock), true
+	}
+
+	before, after := m.observationsAround(at)
+	if before != nil {
+		delta, ok := progressKnownDeckDeltaRange(m.events, m.infos, before.ObservedAt, at)
+		if !ok {
+			return 0, false
+		}
+		return progressObservationTotal(*before) + delta, true
+	}
+	if after != nil {
+		delta, ok := progressKnownDeckDeltaRange(m.events, m.infos, at, after.ObservedAt)
+		if !ok {
+			return 0, false
+		}
+		return progressObservationTotal(*after) - delta, true
+	}
+	return 0, false
+}
+
+// redYellowAt reports the red and yellow pool at a moment. An exact double
+// anchor makes it exact; otherwise it is estimated from the draw mix.
+func (m *progressDeckModel) redYellowAt(at time.Time) (int, bool, bool) {
+	anchorIdx := -1
+	var anchor progressEventInfo
+	for idx, info := range m.anchors {
+		if !info.exact {
+			continue
+		}
+		if m.events[idx].Timestamp.Time.After(at) {
+			continue
+		}
+		if anchorIdx < 0 || m.events[idx].Timestamp.Time.After(m.events[anchorIdx].Timestamp.Time) {
+			anchorIdx = idx
+			anchor = info
+		}
+	}
+
+	if anchorIdx >= 0 {
+		ry := anchor.double * 2
+		for idx := anchorIdx + 1; idx < len(m.events); idx++ {
+			entry := m.events[idx]
+			if entry.Timestamp.Time.After(at) {
+				break
+			}
+			delta, ok := progressKnownRYDelta(entry, m.infoAt(idx))
+			if !ok {
+				return 0, false, false
+			}
+			ry += delta
+		}
+		if ry < 0 {
+			ry = 0
+		}
+		return ry, true, true
+	}
+
+	// No anchor before this moment. Walk back from the first exact anchor
+	// after it, so a day before a double still has an exact starting pool.
+	nextIdx := -1
+	var next progressEventInfo
+	for idx, info := range m.anchors {
+		if !info.exact {
+			continue
+		}
+		if m.events[idx].Timestamp.Time.Before(at) {
+			continue
+		}
+		if nextIdx < 0 || m.events[idx].Timestamp.Time.Before(m.events[nextIdx].Timestamp.Time) {
+			nextIdx = idx
+			next = info
+		}
+	}
+	if nextIdx >= 0 {
+		ry := next.double
+		for idx := nextIdx - 1; idx >= 0; idx-- {
+			entry := m.events[idx]
+			if entry.Timestamp.Time.Before(at) {
+				break
+			}
+			delta, ok := progressKnownRYDelta(entry, m.infoAt(idx))
+			if !ok {
+				return 0, false, false
+			}
+			ry -= delta
+		}
+		if ry < 0 {
+			ry = 0
+		}
+		return ry, true, true
+	}
+
+	// A double with no stored counts makes the pool unknown from that point on.
+	for idx, entry := range m.events {
+		if entry.Timestamp.Time.After(at) {
+			break
+		}
+		if entry.EventType == 6 {
+			if card, ok := progressDrawCard(entry); ok && card == cs.CardDoubleUp {
+				if info, ok := m.anchors[idx]; !ok || !info.exact {
+					return 0, false, false
+				}
+			}
+		}
+	}
+
+	total, totalExact := m.totalAt(at)
+	if !totalExact {
+		return 0, false, false
+	}
+	ry, estimated := progressRedYellowEstimate(m.lock, m.events, at, total)
+	return ry, false, estimated
+}
+
+func (m *progressDeckModel) infoAt(idx int) progressEventInfo {
+	if idx >= 0 && idx < len(m.infos) {
+		return m.infos[idx]
+	}
+	return progressEventInfo{}
+}
+
+func (m *progressDeckModel) observationsAround(at time.Time) (*store.LockObservation, *store.LockObservation) {
+	var before, after *store.LockObservation
+	for idx := range m.observations {
+		obs := &m.observations[idx]
+		if !obs.ObservedAt.After(at) {
+			before = obs
+			continue
+		}
+		if after == nil {
+			after = obs
+			break
+		}
+	}
+	return before, after
+}
+
+// buildDoubleAnchors computes the exact red and yellow addition for every
+// double up that has observations before and after it.
+func (m *progressDeckModel) buildDoubleAnchors() {
+	for idx, entry := range m.events {
+		if entry.EventType != 6 {
+			continue
+		}
+		card, ok := progressDrawCard(entry)
+		if !ok || card != cs.CardDoubleUp {
+			continue
+		}
+		info := progressEventInfo{hasDouble: true}
+		before, after := m.doubleObservations(entry.Timestamp.Time)
+		if before == nil || after == nil {
+			info.unknown = true
+			m.anchors[idx] = info
+			m.setInfo(idx, info)
+			continue
+		}
+
+		beforeIdx := progressEventCountAtOrBefore(m.events, before.ObservedAt)
+		afterIdx := progressEventCountAtOrBefore(m.events, after.ObservedAt)
+		toDouble, okBefore := progressKnownDeckDeltaRangeByIndex(m.events, m.infos, beforeIdx, idx)
+		afterDouble, okAfter := progressKnownDeckDeltaRangeByIndex(m.events, m.infos, idx+1, afterIdx)
+		if !okBefore || !okAfter {
+			info.unknown = true
+			m.anchors[idx] = info
+			m.setInfo(idx, info)
+			continue
+		}
+
+		B := progressObservationTotal(*before) + toDouble
+		A := progressObservationTotal(*after) - afterDouble
+		ry, other, ok := progressDoubleCandidate(B, A)
+		if !ok {
+			info.unknown = true
+			m.anchors[idx] = info
+			m.setInfo(idx, info)
+			continue
+		}
+		info.exact = true
+		info.double = ry
+		info.before = B
+		info.after = A
+		info.other = other
+		m.anchors[idx] = info
+		m.setInfo(idx, info)
+	}
+}
+
+func (m *progressDeckModel) setInfo(idx int, info progressEventInfo) {
+	if idx >= 0 && idx < len(m.infos) {
+		m.infos[idx] = info
+	}
+}
+
+func (m *progressDeckModel) doubleObservations(at time.Time) (*store.LockObservation, *store.LockObservation) {
+	var before, after *store.LockObservation
+	for idx := range m.observations {
+		obs := &m.observations[idx]
+		// Log timestamps have second precision. A snapshot inside the same
+		// second is ambiguous, so the before side needs a one second margin.
+		if !obs.ObservedAt.Add(time.Second).Before(at) {
+			if obs.ObservedAt.After(at) && after == nil {
+				after = obs
+			}
+			continue
+		}
+		before = obs
+		if after != nil {
+			break
+		}
+	}
+	return before, after
+}
+
+func progressObservationTotal(obs store.LockObservation) int {
+	if obs.DeckTotal > 0 || !obs.Hidden {
+		return obs.DeckTotal
+	}
+	return obs.CardCount
+}
+
+func progressLiveTotal(lock *cs.LoadedLock) int {
+	if lock == nil {
+		return 0
+	}
+	if !lock.Hidden && lock.Deck != nil {
+		return lock.Deck.Total()
+	}
+	return lock.CardCount
+}
+
+// progressDoubleCandidate turns before and after totals into the red/yellow
+// addition and the non-red/yellow count. The drawn double card is removed
+// before reds and yellows double.
+func progressDoubleCandidate(before, after int) (int, int, bool) {
+	ry := after - (before - 1)
+	other := (before - 1) - ry
+	if ry >= 0 && other >= 0 {
+		return ry, other, true
+	}
+	// A client that counts the drawn double in the pile produces the other
+	// convention. Use it only when the first form cannot work.
+	ry = after - before
+	other = before - ry
+	if ry >= 0 && other >= 0 {
+		return ry, other, true
+	}
+	return 0, 0, false
+}
+
+// progressKnownDeckDeltaRange sums known total-card changes between two times.
+func progressKnownDeckDeltaRange(events []cs.LogEntry, infos []progressEventInfo, from, to time.Time) (int, bool) {
+	fromIdx := progressEventCountAtOrBefore(events, from)
+	toIdx := progressEventCountAtOrBefore(events, to)
+	return progressKnownDeckDeltaRangeByIndex(events, infos, fromIdx, toIdx)
+}
+
+func progressKnownDeckDeltaRangeByIndex(events []cs.LogEntry, infos []progressEventInfo, from, to int) (int, bool) {
+	if from < 0 {
+		from = 0
+	}
+	if to > len(events) {
+		to = len(events)
+	}
+	total := 0
+	for idx := from; idx < to; idx++ {
+		info := progressEventInfo{}
+		if idx >= 0 && idx < len(infos) {
+			info = infos[idx]
+		}
+		delta, ok := progressKnownDeckDelta(events[idx], info)
+		if !ok {
+			return 0, false
+		}
+		total += delta
+	}
+	return total, true
+}
+
+func progressEventCountAtOrBefore(events []cs.LogEntry, at time.Time) int {
+	count := 0
+	for _, entry := range events {
+		if entry.Timestamp.Time.After(at) {
+			break
+		}
+		count++
+	}
+	return count
+}
+
+// progressKnownDeckDelta is the total-card effect of one event. Unknown
+// effects return false.
+func progressKnownDeckDelta(entry cs.LogEntry, info progressEventInfo) (int, bool) {
+	switch entry.EventType {
+	case 6:
+		card, ok := progressDrawCard(entry)
+		if !ok {
+			return 0, false
+		}
+		if card == cs.CardSticky || card == cs.CardArctic {
+			return 0, true
+		}
+		if delta, known := yellowRedDelta(card); known {
+			return delta - 1, true
+		}
+		switch card {
+		case cs.CardDoubleUp:
+			if info.exact {
+				return info.double - 1, true
+			}
+			return 0, false
+		case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN, cs.CardPink, cs.CardReset:
+			return 0, false
+		default:
+			return -1, true
+		}
+	case 15, 17:
+		return progressEditAmount(entry), true
+	case 16, 18:
+		return -progressEditAmount(entry), true
+	case 28, 29, 30:
+		return 0, false
+	case 7, 9, 10, 13, 39:
+		return 0, false
+	default:
+		return 0, true
+	}
+}
+
+// progressKnownRYDelta is the red/yellow pool effect of one event.
+func progressKnownRYDelta(entry cs.LogEntry, info progressEventInfo) (int, bool) {
+	switch entry.EventType {
+	case 6:
+		card, ok := progressDrawCard(entry)
+		if !ok {
+			return 0, false
+		}
+		if card == cs.CardSticky || card == cs.CardArctic {
+			return 0, true
+		}
+		if delta, known := yellowRedDelta(card); known {
+			return delta - 1, true
+		}
+		switch card {
+		case cs.CardRed:
+			return -1, true
+		case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
+			return 0, false
+		case cs.CardDoubleUp:
+			if info.exact {
+				return info.double, true
+			}
+			return 0, false
+		case cs.CardPink, cs.CardReset:
+			return 0, false
+		default:
+			return 0, true
+		}
+	case 15, 17:
+		card, ok := progressEditCard(entry)
+		if !ok {
+			return 0, false
+		}
+		if card == cs.CardRed || isYellowCard(card) {
+			return progressEditAmount(entry), true
+		}
+		return 0, true
+	case 16, 18:
+		card, ok := progressEditCard(entry)
+		if !ok {
+			return 0, false
+		}
+		if card == cs.CardRed || isYellowCard(card) {
+			return -progressEditAmount(entry), true
+		}
+		return 0, true
+	case 28, 29, 30:
+		return 0, false
+	case 7, 9, 10, 13, 39:
+		return 0, false
+	default:
+		return 0, true
+	}
+}
+
+// progressRedYellowEstimate estimates the hidden red/yellow pool from the draw
+// mix up to a moment.
+func progressRedYellowEstimate(lock *cs.LoadedLock, events []cs.LogEntry, at time.Time, total int) (int, bool) {
+	draws, ryDraws := 0, 0
+	for _, entry := range events {
+		if entry.Timestamp.Time.After(at) {
+			break
+		}
+		if entry.EventType != 6 {
+			continue
+		}
+		card, ok := progressDrawCard(entry)
+		if !ok {
+			continue
+		}
+		if card == cs.CardSticky || card == cs.CardArctic {
+			continue
+		}
+		draws++
+		if card == cs.CardRed || isYellowCard(card) {
+			ryDraws++
+		}
+	}
+	if draws == 0 {
+		return max(0, total/3), true
+	}
+	estimate := (ryDraws*total + draws/2) / draws
+	if estimate < 0 {
+		estimate = 0
+	}
+	if estimate > total {
+		estimate = total
+	}
+	return estimate, true
+}
+
+// progressExactStates walks the visible current deck backwards, then forwards
+// from the recovered original deck to record every day.
+func progressExactStates(lock *cs.LoadedLock, events []cs.LogEntry, segments []progressSegment, infos []progressEventInfo, ends, starts map[string]progressDeckState) bool {
 	if len(segments) == 0 {
 		return true
 	}
-	// Walk the events after the newest reset back to that reset. A reset
-	// restores the original deck, so that recovered composition is also the
-	// start of every older segment. An empty current segment means the live
-	// deck is already the restored original.
 	lastBoundary := -1
 	for idx, entry := range events {
 		if isDeckReset(entry.EventType) {
@@ -106,46 +577,23 @@ func progressExactStates(lock *cs.LoadedLock, events []cs.LogEntry, segments []p
 	}
 
 	for _, seg := range segments {
-		segmentStates := make(map[string]progressDeckState)
-		end, ok := forwardProgressExact(lock, original.Clone(), events[seg.from:seg.to], infos, segmentStates, seg.from)
+		segmentEnds := make(map[string]progressDeckState)
+		segmentStarts := make(map[string]progressDeckState)
+		end, ok := forwardProgressExact(lock, original.Clone(), events[seg.from:seg.to], infos, segmentEnds, segmentStarts, seg.from)
 		if !ok {
 			return false
 		}
 		if seg.from == currentStart && seg.to == len(events) && !progressSameDeck(end, lock.Deck) {
 			return false
 		}
-		for key, state := range segmentStates {
-			states[key] = state
+		for key, state := range segmentEnds {
+			ends[key] = state
+		}
+		for key, state := range segmentStarts {
+			starts[key] = state
 		}
 	}
 	return true
-}
-
-// progressEstimateStates simulates each segment from the configured deck size.
-func progressEstimateStates(lock *cs.LoadedLock, events []cs.LogEntry, segments []progressSegment, infos []progressEventInfo, states map[string]progressDeckState) {
-	for _, seg := range segments {
-		est := newProgressEstimate(lock)
-		greensDrawn, greensPutBack := 0, 0
-		for idx := seg.from; idx < seg.to; idx++ {
-			entry := events[idx]
-			info := est.apply(lock, entry)
-			infos[idx] = info
-			if entry.EventType == 6 {
-				if card, ok := progressDrawCard(entry); ok && card == cs.CardGreen {
-					greensDrawn++
-				}
-			}
-			if (entry.EventType == 15 || entry.EventType == 17) && entry.Actor == 2 {
-				if card, ok := progressEditCard(entry); ok && card == cs.CardGreen {
-					greensPutBack += progressEditAmount(entry)
-				}
-			}
-			if progressDayEnd(events, idx, seg.to) {
-				needed := progressGreensNeeded(lock, greensDrawn, greensPutBack)
-				states[progressDayKey(entry.Timestamp.Time)] = est.state(lock, needed)
-			}
-		}
-	}
 }
 
 // progressSegment is one deck lifetime between load and reset events.
@@ -183,19 +631,21 @@ func progressSegments(events []cs.LogEntry) []progressSegment {
 	return out
 }
 
-func progressDayEnd(events []cs.LogEntry, idx, end int) bool {
-	if idx+1 >= end {
-		return true
-	}
-	return progressDayKey(events[idx].Timestamp.Time) != progressDayKey(events[idx+1].Timestamp.Time)
-}
-
-// forwardProgressExact applies the segment from a recovered original deck and
-// records each day's closing state.
-func forwardProgressExact(lock *cs.LoadedLock, start cs.Deck, events []cs.LogEntry, infos []progressEventInfo, states map[string]progressDeckState, base int) (cs.Deck, bool) {
+// forwardProgressExact applies a segment from a recovered original deck and
+// records each day's opening and closing state.
+func forwardProgressExact(lock *cs.LoadedLock, start cs.Deck, events []cs.LogEntry, infos []progressEventInfo, ends, starts map[string]progressDeckState, base int) (cs.Deck, bool) {
 	deck := start.Clone()
 	greensDrawn, greensPutBack := 0, 0
+	currentDay := ""
 	for idx, entry := range events {
+		day := progressDayKey(entry.Timestamp.Time)
+		if day != currentDay {
+			if _, ok := starts[day]; !ok {
+				needed := progressGreensNeeded(lock, greensDrawn, greensPutBack)
+				starts[day] = exactProgressState(deck, lock, needed)
+			}
+			currentDay = day
+		}
 		info, ok := applyProgressExact(deck, entry)
 		if !ok {
 			return nil, false
@@ -213,28 +663,17 @@ func forwardProgressExact(lock *cs.LoadedLock, start cs.Deck, events []cs.LogEnt
 		}
 		if progressDayEnd(events, idx, len(events)) {
 			needed := progressGreensNeeded(lock, greensDrawn, greensPutBack)
-			states[progressDayKey(entry.Timestamp.Time)] = exactProgressState(deck, lock, needed)
+			ends[day] = exactProgressState(deck, lock, needed)
 		}
 	}
 	return deck, true
 }
 
-// progressSameDeck reports whether two compositions are equal.
-func progressSameDeck(left, right cs.Deck) bool {
-	if left.Total() != right.Total() {
-		return false
+func progressDayEnd(events []cs.LogEntry, idx, end int) bool {
+	if idx+1 >= end {
+		return true
 	}
-	for card, count := range left {
-		if count != 0 && right[card] != count {
-			return false
-		}
-	}
-	for card, count := range right {
-		if count != 0 && left[card] != count {
-			return false
-		}
-	}
-	return true
+	return progressDayKey(events[idx].Timestamp.Time) != progressDayKey(events[idx+1].Timestamp.Time)
 }
 
 // reverseProgressSegment undoes a segment from its end to its start.
@@ -248,7 +687,6 @@ func reverseProgressSegment(end cs.Deck, events []cs.LogEntry) (cs.Deck, bool) {
 	return deck, true
 }
 
-// applyProgressExact applies one event to an exact deck.
 func applyProgressExact(deck cs.Deck, entry cs.LogEntry) (progressEventInfo, bool) {
 	var info progressEventInfo
 	switch entry.EventType {
@@ -266,8 +704,7 @@ func applyProgressExact(deck cs.Deck, entry cs.LogEntry) (progressEventInfo, boo
 		switch card {
 		case cs.CardYellowP1, cs.CardYellowP2, cs.CardYellowP3:
 			deck[card]--
-			n := yellowRedAmount(card)
-			deck[cs.CardRed] += n
+			deck[cs.CardRed] += yellowRedAmount(card)
 		case cs.CardYellowM1, cs.CardYellowM2:
 			deck[card]--
 			n := yellowRedAmount(card)
@@ -285,8 +722,6 @@ func applyProgressExact(deck cs.Deck, entry cs.LogEntry) (progressEventInfo, boo
 			}
 			info.hasDouble = true
 			info.double = added
-			info.doubleLow = added
-			info.doubleHigh = added
 			info.exact = true
 		case cs.CardPink:
 			deck[cs.CardPink]--
@@ -300,29 +735,24 @@ func applyProgressExact(deck cs.Deck, entry cs.LogEntry) (progressEventInfo, boo
 		if !ok {
 			return info, false
 		}
-		amount := progressEditAmount(entry)
-		deck[card] += amount
+		deck[card] += progressEditAmount(entry)
 		return info, true
 	case 16, 18:
 		card, ok := progressEditCard(entry)
 		if !ok {
 			return info, false
 		}
-		amount := progressEditAmount(entry)
-		removed := min(amount, deck[card])
+		removed := min(progressEditAmount(entry), deck[card])
 		deck[card] -= removed
-		info.clampedRemove = removed < amount
+		info.clampedRemove = removed < progressEditAmount(entry)
 		return info, true
-	case 28, 29, 30:
-		return info, false
-	case 7, 9, 10, 13, 39:
+	case 28, 29, 30, 7, 9, 10, 13, 39:
 		return info, false
 	default:
 		return info, true
 	}
 }
 
-// reverseProgressEvent undoes one event on an exact deck.
 func reverseProgressEvent(deck cs.Deck, entry cs.LogEntry) bool {
 	switch entry.EventType {
 	case 6:
@@ -342,8 +772,7 @@ func reverseProgressEvent(deck cs.Deck, entry cs.LogEntry) bool {
 			deck[cs.CardRed] -= n
 			deck[card]++
 		case cs.CardYellowM1, cs.CardYellowM2:
-			n := yellowRedAmount(card)
-			deck[cs.CardRed] += n
+			deck[cs.CardRed] += yellowRedAmount(card)
 			deck[card]++
 		case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
 			return false
@@ -383,285 +812,47 @@ func reverseProgressEvent(deck cs.Deck, entry cs.LogEntry) bool {
 		}
 		deck[card] += progressEditAmount(entry)
 		return true
-	case 28, 29, 30:
-		return false
-	case 7, 9, 10, 13, 39:
+	case 28, 29, 30, 7, 9, 10, 13, 39:
 		return false
 	default:
 		return true
 	}
 }
 
-// progressEstimate is the hidden-deck model. Point values follow the known
-// changes; bounds widen when a double up or an unknown card makes the exact
-// number unknowable.
-type progressEstimate struct {
-	total     int
-	totalLow  int
-	totalHigh int
-
-	greens     int
-	greensLow  int
-	greensHigh int
-
-	redYellow     int
-	redYellowLow  int
-	redYellowHigh int
-
-	rough   bool
-	unknown bool
-	notes   []string
-}
-
-func newProgressEstimate(lock *cs.LoadedLock) progressEstimate {
-	// CardCount is the size of the deck when the lock loaded or reset, not the
-	// number of cards left. The log supplies everything removed or added since.
-	size := 0
-	required := 0
-	if lock != nil {
-		size = lock.CardCount
-		required = lock.GreensRequired
+// progressSameDeck reports whether two compositions are equal.
+func progressSameDeck(left, right cs.Deck) bool {
+	if left.Total() != right.Total() {
+		return false
 	}
-	if size <= 0 {
-		return progressEstimate{unknown: true, notes: []string{"No deck size was reported."}}
-	}
-
-	greensLow, greensHigh := 0, size
-	greens := size / 3
-	if required > 1000 {
-		greensLow = 1
-		if greens < 1 {
-			greens = 1
+	for card, count := range left {
+		if count != 0 && right[card] != count {
+			return false
 		}
-	} else if required > 0 {
-		greensLow = min(required, size)
-		greens = max(greensLow, size/3)
 	}
-
-	redYellowLow := 0
-	redYellowHigh := max(0, size-greensLow)
-	redYellow := max(0, (size-greens)/2)
-
-	est := progressEstimate{
-		total:         size,
-		totalLow:      size,
-		totalHigh:     size,
-		greens:        greens,
-		greensLow:     greensLow,
-		greensHigh:    greensHigh,
-		redYellow:     redYellow,
-		redYellowLow:  redYellowLow,
-		redYellowHigh: redYellowHigh,
-	}
-	est.clamp()
-	return est
-}
-
-func (e progressEstimate) state(lock *cs.LoadedLock, greensNeeded int) progressDeckState {
-	allGreens := lock != nil && lock.GreensRequired > 1000
-	return progressDeckState{
-		exact:         false,
-		rough:         e.rough,
-		total:         e.total,
-		totalLow:      e.totalLow,
-		totalHigh:     e.totalHigh,
-		greens:        e.greens,
-		greensLow:     e.greensLow,
-		greensHigh:    e.greensHigh,
-		redYellow:     e.redYellow,
-		redYellowLow:  e.redYellowLow,
-		redYellowHigh: e.redYellowHigh,
-		greensNeeded:  greensNeeded,
-		allGreens:     allGreens,
-		unknownSize:   e.unknown,
-		notes:         append([]string(nil), e.notes...),
-	}
-}
-
-// apply updates the hidden-deck estimate for one event.
-func (e *progressEstimate) apply(lock *cs.LoadedLock, entry cs.LogEntry) progressEventInfo {
-	var info progressEventInfo
-	if e.unknown {
-		return info
-	}
-	switch entry.EventType {
-	case 6:
-		card, ok := progressDrawCard(entry)
-		if !ok {
-			e.total--
-			e.rough = true
-			e.notes = append(e.notes, "One draw named an unknown card.")
-			e.clamp()
-			return info
+	for card, count := range right {
+		if count != 0 && left[card] != count {
+			return false
 		}
-		if card == cs.CardSticky || card == cs.CardArctic {
-			return info
-		}
-		switch card {
-		case cs.CardYellowP1, cs.CardYellowP2, cs.CardYellowP3:
-			n := yellowRedAmount(card)
-			e.total += n - 1
-			e.totalLow += n - 1
-			e.totalHigh += n - 1
-			e.redYellow += n
-			e.redYellowLow += n
-			e.redYellowHigh += n
-		case cs.CardYellowM1, cs.CardYellowM2:
-			n := yellowRedAmount(card)
-			e.total -= n + 1
-			e.totalLow -= n + 1
-			e.totalHigh -= n + 1
-			e.redYellow -= n
-			e.redYellowLow -= n
-			e.redYellowHigh -= n
-		case cs.CardYellow, cs.CardYellowUK, cs.CardYellowRN:
-			e.total--
-			e.totalLow -= 3
-			e.totalHigh += 2
-			e.redYellowLow -= 2
-			e.redYellowHigh += 3
-			e.rough = true
-			e.notes = append(e.notes, "A random or hidden yellow did not reveal its red change.")
-		case cs.CardDoubleUp:
-			added := e.redYellow
-			addedLow := e.redYellowLow
-			addedHigh := e.redYellowHigh
-			e.total += added - 1
-			e.totalLow += addedLow - 1
-			e.totalHigh += addedHigh - 1
-			e.redYellow *= 2
-			e.redYellowLow *= 2
-			e.redYellowHigh *= 2
-			e.rough = true
-			e.notes = append(e.notes, "Double up added an estimated number of reds and yellows.")
-			info.hasDouble = true
-			info.double = added
-			info.doubleLow = addedLow
-			info.doubleHigh = addedHigh
-			info.exact = false
-		case cs.CardPink:
-			e.total--
-			e.rough = true
-			e.notes = append(e.notes, "A pink card changed the deck.")
-		default:
-			e.total--
-			e.totalLow--
-			e.totalHigh--
-			switch card {
-			case cs.CardGreen:
-				e.greens--
-				e.greensLow--
-				e.greensHigh--
-			case cs.CardRed:
-				e.redYellow--
-				e.redYellowLow--
-				e.redYellowHigh--
-			}
-		}
-	case 15, 17:
-		amount := progressEditAmount(entry)
-		card, ok := progressEditCard(entry)
-		e.total += amount
-		e.totalLow += amount
-		e.totalHigh += amount
-		if ok {
-			switch {
-			case card == cs.CardGreen:
-				e.greens += amount
-				e.greensLow += amount
-				e.greensHigh += amount
-			case card == cs.CardRed || isYellowCard(card):
-				e.redYellow += amount
-				e.redYellowLow += amount
-				e.redYellowHigh += amount
-			}
-		} else {
-			e.rough = true
-			e.notes = append(e.notes, "A card addition did not name its card.")
-		}
-	case 16, 18:
-		amount := progressEditAmount(entry)
-		card, ok := progressEditCard(entry)
-		e.total -= amount
-		e.totalLow -= amount
-		e.totalHigh -= amount
-		if ok {
-			switch {
-			case card == cs.CardGreen:
-				e.greens -= amount
-				e.greensLow -= amount
-				e.greensHigh -= amount
-			case card == cs.CardRed || isYellowCard(card):
-				e.redYellow -= amount
-				e.redYellowLow -= amount
-				e.redYellowHigh -= amount
-			}
-		} else {
-			e.rough = true
-			e.notes = append(e.notes, "A card removal did not name its card.")
-		}
-	case 28, 29, 30:
-		e.rough = true
-		e.notes = append(e.notes, "A deck edit had no readable card details.")
 	}
-	e.clamp()
-	return info
-}
-
-func (e *progressEstimate) clamp() {
-	if e.total < 0 {
-		e.total = 0
-	}
-	if e.totalLow < 0 {
-		e.totalLow = 0
-	}
-	if e.totalHigh < e.totalLow {
-		e.totalHigh = e.totalLow
-	}
-	if e.total < e.totalLow {
-		e.total = e.totalLow
-	}
-	if e.total > e.totalHigh {
-		e.total = e.totalHigh
-	}
-
-	e.greens = clampInt(e.greens, 0, e.total)
-	e.greensLow = clampInt(e.greensLow, 0, e.totalHigh)
-	e.greensHigh = clampInt(e.greensHigh, e.greensLow, e.totalHigh)
-
-	e.redYellow = clampInt(e.redYellow, 0, max(0, e.total-e.greens))
-	e.redYellowLow = clampInt(e.redYellowLow, 0, max(0, e.totalHigh-e.greensLow))
-	e.redYellowHigh = clampInt(e.redYellowHigh, e.redYellowLow, max(0, e.totalHigh-e.greensLow))
-	if e.redYellow < e.redYellowLow {
-		e.redYellow = e.redYellowLow
-	}
-	if e.redYellow > e.redYellowHigh {
-		e.redYellow = e.redYellowHigh
-	}
+	return true
 }
 
 // exactProgressState derives a state from an exact deck composition.
 func exactProgressState(deck cs.Deck, lock *cs.LoadedLock, greensNeeded int) progressDeckState {
 	total := deck.Total()
 	greens := deck.Greens()
-	reds := deck.Reds()
-	yellows := deck.Yellows()
-	ry := reds + yellows
+	ry := deck.Reds() + deck.Yellows()
 	allGreens := lock != nil && lock.GreensRequired > 1000
 	return progressDeckState{
-		exact:         true,
-		cards:         deck.Clone(),
-		total:         total,
-		totalLow:      total,
-		totalHigh:     total,
-		greens:        greens,
-		greensLow:     greens,
-		greensHigh:    greens,
-		redYellow:     ry,
-		redYellowLow:  ry,
-		redYellowHigh: ry,
-		greensNeeded:  greensNeeded,
-		allGreens:     allGreens,
+		cards:          deck.Clone(),
+		total:          total,
+		totalExact:     true,
+		redYellow:      ry,
+		redYellowExact: true,
+		greens:         greens,
+		greensExact:    true,
+		greensNeeded:   greensNeeded,
+		allGreens:      allGreens,
 	}
 }
 
@@ -678,19 +869,25 @@ func progressGreensNeeded(lock *cs.LoadedLock, drawn, putBack int) int {
 	return needed
 }
 
-// progressCurrentGreensNeeded counts greens since the most recent reset or load.
-func progressCurrentGreensNeeded(lock *cs.LoadedLock, events []cs.LogEntry) int {
+// progressGreensNeededAt counts greens since the most recent reset or load.
+func progressGreensNeededAt(lock *cs.LoadedLock, events []cs.LogEntry, at time.Time) int {
 	if lock == nil || lock.GreensRequired > 1000 {
 		return -1
 	}
 	start := 0
 	for idx, entry := range events {
+		if entry.Timestamp.Time.After(at) {
+			break
+		}
 		if isDeckReset(entry.EventType) {
 			start = idx + 1
 		}
 	}
 	drawn, putBack := 0, 0
 	for _, entry := range events[start:] {
+		if entry.Timestamp.Time.After(at) {
+			break
+		}
 		if entry.EventType == 6 {
 			if card, ok := progressDrawCard(entry); ok && card == cs.CardGreen {
 				drawn++

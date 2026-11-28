@@ -193,6 +193,7 @@ func (f *Feature) postDrawBoard(ctx context.Context, s *discordgo.Session, i *di
 		startedAt:     f.now(),
 	}
 	session.setLock(lock)
+	f.observeLock(ctx, lock)
 
 	f.putSession(session)
 	msg, err := bot.EditMessageGet(s, i, "",

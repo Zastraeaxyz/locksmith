@@ -59,6 +59,7 @@ func (f *Feature) handleLockDeck(ctx context.Context, s *discordgo.Session, i *d
 		return bot.EditChunks(s, i, f.apiFailure(ctx, userID, err), !public)
 	}
 	locks, _ = f.freshLocks(ctx, client, locks, f.now())
+	f.observeLocks(ctx, ownLocks(locks, cred.ChastiSafeID))
 
 	target, note, err := deckTarget(locks, cred.ChastiSafeID, ref)
 	if err != nil {

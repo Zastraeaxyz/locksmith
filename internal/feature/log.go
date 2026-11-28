@@ -72,6 +72,7 @@ func (f *Feature) handleLockLog(ctx context.Context, s *discordgo.Session, i *di
 		return bot.Edit(s, i, f.apiFailure(ctx, userID, err))
 	}
 	own, freeze := f.freshLocks(ctx, client, ownLocks(locks, cred.ChastiSafeID), f.now())
+	f.observeLocks(ctx, own)
 
 	recent, err := client.Recent(ctx)
 	if err != nil {

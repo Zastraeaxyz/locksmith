@@ -41,12 +41,22 @@ func (f *Feature) NotifyLoop(ctx context.Context, s *discordgo.Session) {
 	}
 
 	f.backfillSubscriptions(ctx)
+	if err := f.store.PruneLockObservations(ctx, f.now().AddDate(0, 0, -90)); err != nil {
+		f.log.Warn("pruning lock observations", "err", err)
+	}
 	f.runDueNotifications(ctx, s)
+	lastPrune := f.now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			if f.now().Sub(lastPrune) >= 24*time.Hour {
+				if err := f.store.PruneLockObservations(ctx, f.now().AddDate(0, 0, -90)); err != nil {
+					f.log.Warn("pruning lock observations", "err", err)
+				}
+				lastPrune = f.now()
+			}
 			f.runDueNotifications(ctx, s)
 		}
 	}
@@ -120,6 +130,7 @@ func (f *Feature) backfillSubscription(ctx context.Context, userID string) bool 
 	if lock == nil {
 		return false
 	}
+	f.observeLock(ctx, lock)
 	if err := f.watchLock(ctx, nil, userID, lock); err != nil {
 		f.log.Warn("restoring a subscription", "user_id", userID, "err", err)
 		return false
@@ -160,6 +171,7 @@ func (f *Feature) checkNotification(ctx context.Context, s *discordgo.Session, n
 		_ = f.store.Unsubscribe(ctx, userID)
 		return
 	}
+	f.observeLock(ctx, lock)
 	if lock.IsReady() {
 		f.clearNotificationMessages(ctx, s, userID)
 		_ = f.sendNotification(ctx, s, userID, notificationKindNotice,

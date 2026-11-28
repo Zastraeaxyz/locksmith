@@ -675,3 +675,67 @@ func TestNotificationMessageRoundTrip(t *testing.T) {
 		t.Fatalf("messages after DeleteCredential = %d, want 1", len(got))
 	}
 }
+
+func TestLockObservationRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	st := openTestStore(t)
+	now := time.Now().UTC().Truncate(time.Millisecond)
+
+	first := LockObservation{
+		LockID:     "lock-1",
+		ObservedAt: now,
+		CardCount:  42,
+		DeckTotal:  42,
+		DeckJSON:   `{"RED":2}`,
+		Draws:      "gr",
+		Hidden:     false,
+	}
+	if err := st.RecordLockObservation(ctx, first); err != nil {
+		t.Fatalf("RecordLockObservation: %v", err)
+	}
+	// A repeated unchanged poll should not add a row.
+	if err := st.RecordLockObservation(ctx, first); err != nil {
+		t.Fatalf("RecordLockObservation repeat: %v", err)
+	}
+
+	second := first
+	second.ObservedAt = now.Add(time.Second)
+	second.CardCount = 41
+	second.Draws = "grr"
+	if err := st.RecordLockObservation(ctx, second); err != nil {
+		t.Fatalf("RecordLockObservation second: %v", err)
+	}
+
+	got, err := st.LockObservations(ctx, "lock-1", time.Time{})
+	if err != nil {
+		t.Fatalf("LockObservations: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("observations = %d, want 2", len(got))
+	}
+	if got[0].CardCount != 42 || got[1].CardCount != 41 {
+		t.Fatalf("observations = %+v", got)
+	}
+	if got[1].DeckJSON != `{"RED":2}` || got[1].Draws != "grr" {
+		t.Fatalf("second observation = %+v", got[1])
+	}
+
+	latest, err := st.LatestLockObservation(ctx, "lock-1")
+	if err != nil {
+		t.Fatalf("LatestLockObservation: %v", err)
+	}
+	if latest == nil || latest.CardCount != 41 {
+		t.Fatalf("latest = %+v", latest)
+	}
+
+	if err := st.PruneLockObservations(ctx, now.Add(500*time.Millisecond)); err != nil {
+		t.Fatalf("PruneLockObservations: %v", err)
+	}
+	got, err = st.LockObservations(ctx, "lock-1", time.Time{})
+	if err != nil {
+		t.Fatalf("LockObservations after prune: %v", err)
+	}
+	if len(got) != 1 || got[0].CardCount != 41 {
+		t.Fatalf("after prune = %+v", got)
+	}
+}
