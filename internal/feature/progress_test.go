@@ -415,3 +415,59 @@ func TestObserveLockStoresHiddenCountOnly(t *testing.T) {
 		t.Fatal("hidden flag was not stored")
 	}
 }
+
+func TestProgressRealDoubleSession(t *testing.T) {
+	now := time.Date(2026, 11, 28, 0, 30, 0, 0, time.UTC)
+	lock := progressLock(nil, true, now)
+	lock.CardCount = 179
+	lock.GreensRequired = 10000
+	lock.LoadTime = cs.Time{Time: time.Date(2026, 11, 26, 16, 22, 31, 0, time.UTC)}
+	lock.LastResetTime = lock.LoadTime
+
+	events := []cs.LogEntry{
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 2, 0, time.UTC)}, EventType: 6, Card: "y", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 4, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 6, 0, time.UTC)}, EventType: 6, Card: "2", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 8, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 9, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 11, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 12, 0, time.UTC)}, EventType: 6, Card: "3", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 17, 0, time.UTC)}, EventType: 6, Card: "o", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 19, 0, time.UTC)}, EventType: 6, Card: "3", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 21, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 23, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 25, 0, time.UTC)}, EventType: 6, Card: "1", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 27, 0, time.UTC)}, EventType: 6, Card: "o", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 29, 0, time.UTC)}, EventType: 6, Card: "1", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 32, 0, time.UTC)}, EventType: 6, Card: "2", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 34, 0, time.UTC)}, EventType: 6, Card: "r", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 16, 0, time.UTC)}, EventType: 6, Card: "w", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 18, 0, time.UTC)}, EventType: 6, Card: "d", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 22, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 24, 0, time.UTC)}, EventType: 6, Card: "g", Actor: 2},
+		{Timestamp: cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 25, 0, time.UTC)}, EventType: 6, Card: "r", Actor: 2},
+	}
+	observations := []store.LockObservation{
+		progressObservation(cs.Time{Time: time.Date(2026, 11, 27, 0, 23, 35, 0, time.UTC)}, 163, ""),
+		progressObservation(cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 16, 0, time.UTC)}, 160, ""),
+		progressObservation(cs.Time{Time: time.Date(2026, 11, 27, 1, 31, 19, 0, time.UTC)}, 230, ""),
+		progressObservation(cs.Time{Time: time.Date(2026, 11, 28, 0, 6, 12, 0, time.UTC)}, 179, ""),
+	}
+	infos := make([]progressEventInfo, len(events))
+	ends, _ := progressStates(lock, events, infos, observations, now)
+
+	info := infos[17]
+	if !info.hasDouble || !info.exact {
+		t.Fatalf("double info = %+v, want an exact anchor", info)
+	}
+	if info.before != 160 || info.after != 230 || info.double != 71 || info.other != 88 {
+		t.Fatalf("double info = %+v, want 160 -> 230, added 71, other 88", info)
+	}
+	state := ends["2026-11-28"]
+	if !state.totalExact || state.total != 179 {
+		t.Fatalf("current total = %+v, want 179", state)
+	}
+	if !state.redYellowExact || state.redYellow != 141 {
+		t.Fatalf("current red/yellow = %+v, want 141", state)
+	}
+}
