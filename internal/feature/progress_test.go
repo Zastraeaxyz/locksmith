@@ -183,8 +183,8 @@ func TestProgressTallyNetsYellows(t *testing.T) {
 	if tally.drawnRemoved != 7 {
 		t.Errorf("drawn removed = %d, want 7", tally.drawnRemoved)
 	}
-	if !strings.Contains(tally.verboseText(), "Yellow draws") {
-		t.Errorf("verbose text missing yellow detail:\n%s", tally.verboseText())
+	if !strings.Contains(tally.detailText(), "Yellow draws") {
+		t.Errorf("detail text missing yellow detail:\n%s", tally.detailText())
 	}
 }
 
@@ -204,10 +204,10 @@ func TestProgressTallyDoubleDetails(t *testing.T) {
 	if !tally.doubleExact || tally.doubleAdded != 65 || tally.doubleBefore != 163 || tally.doubleOther != 97 {
 		t.Fatalf("double tally = %+v", tally)
 	}
-	text := tally.verboseText()
+	text := tally.detailText()
 	for _, want := range []string{"163 -> 227", "added 65 red/yellow", "97 other"} {
 		if !strings.Contains(text, want) {
-			t.Errorf("verbose text missing %q:\n%s", want, text)
+			t.Errorf("detail text missing %q:\n%s", want, text)
 		}
 	}
 }
@@ -283,16 +283,13 @@ func TestLockProgressCommandOptions(t *testing.T) {
 	for _, option := range progress.Options {
 		options[option.Name] = option
 	}
-	for _, name := range []string{"ref", "days", "verbose", "public"} {
+	for _, name := range []string{"ref", "days", "public"} {
 		if options[name] == nil {
 			t.Errorf("progress is missing the %s option", name)
 		}
 	}
 	if options["days"].Type != discordgo.ApplicationCommandOptionInteger {
 		t.Errorf("days type = %v, want integer", options["days"].Type)
-	}
-	if options["verbose"].Type != discordgo.ApplicationCommandOptionBoolean {
-		t.Errorf("verbose type = %v, want boolean", options["verbose"].Type)
 	}
 	if options["ref"].Autocomplete != true {
 		t.Error("ref should autocomplete")
@@ -317,7 +314,7 @@ func setProgressTestEmojis(t *testing.T) {
 	t.Cleanup(func() { setApplicationEmojiIDs(nil) })
 }
 
-func TestBuildProgressReportConciseAndVerbose(t *testing.T) {
+func TestBuildProgressReport(t *testing.T) {
 	setProgressTestEmojis(t)
 	now := time.Date(2026, 11, 27, 12, 0, 0, 0, time.UTC)
 	lock := progressLock(nil, true, now)
@@ -334,8 +331,7 @@ func TestBuildProgressReportConciseAndVerbose(t *testing.T) {
 		progressObservation(progressTime(26, 11), 227, "grd"),
 		progressObservation(progressTime(27, 11), 226, "grdr"),
 	}
-	concise := buildProgressReport(&progressTarget{running: lock}, progressNewestFirst(events), observations, false, 0, now, "", false)
-	verbose := buildProgressReport(&progressTarget{running: lock}, progressNewestFirst(events), observations, false, 0, now, "", true)
+	report := buildProgressReport(&progressTarget{running: lock}, progressNewestFirst(events), observations, false, 0, now, "")
 	for _, want := range []string{
 		"**Progress**",
 		"What's left",
@@ -343,21 +339,12 @@ func TestBuildProgressReportConciseAndVerbose(t *testing.T) {
 		"red/yellow",
 		"Greens +0",
 		"Reds",
-	} {
-		if !strings.Contains(concise, want) {
-			t.Errorf("concise report missing %q:\n%s", want, concise)
-		}
-	}
-	if strings.Contains(concise, "163 -> 227") {
-		t.Errorf("concise report leaked verbose double detail:\n%s", concise)
-	}
-	for _, want := range []string{
 		"Double up: 163 -> 227",
 		"added 65 red/yellow",
 		"97 other",
 	} {
-		if !strings.Contains(verbose, want) {
-			t.Errorf("verbose report missing %q:\n%s", want, verbose)
+		if !strings.Contains(report, want) {
+			t.Errorf("report missing %q:\n%s", want, report)
 		}
 	}
 }
@@ -370,7 +357,7 @@ func TestBuildProgressReportPreviousDoubleIsUnknown(t *testing.T) {
 		{Timestamp: progressTime(25, 10), EventType: 39},
 		{Timestamp: progressTime(25, 11), EventType: 6, Card: "d", Actor: 2},
 	}
-	report := buildProgressReport(&progressTarget{previous: recent}, progressNewestFirst(events), nil, false, 0, now, "", true)
+	report := buildProgressReport(&progressTarget{previous: recent}, progressNewestFirst(events), nil, false, 0, now, "")
 	if !strings.Contains(report, "counts around this draw were not stored") {
 		t.Errorf("previous double was not marked unknown:\n%s", report)
 	}

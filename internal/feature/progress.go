@@ -106,7 +106,6 @@ func (f *Feature) handleLockProgress(ctx context.Context, s *discordgo.Session, 
 
 	ref, _ := stringOption(opts, "ref")
 	days := intOptionOr(opts, "days", 0)
-	verbose := boolOption(opts, "verbose")
 	public := boolOption(opts, "public")
 	if days < 0 {
 		days = 0
@@ -158,7 +157,7 @@ func (f *Feature) handleLockProgress(ctx context.Context, s *discordgo.Session, 
 		return bot.EditChunks(s, i, header+"\n\nI could not load the log for that lock.", !public)
 	}
 
-	report := buildProgressReport(target, entries, observations, truncated, days, now, note, verbose)
+	report := buildProgressReport(target, entries, observations, truncated, days, now, note)
 	return bot.EditChunks(s, i, report, !public)
 }
 
@@ -242,7 +241,7 @@ func (f *Feature) fetchProgressLog(ctx context.Context, client *cs.Client, lockI
 }
 
 // buildProgressReport turns the log into the text reply.
-func buildProgressReport(target *progressTarget, entries []cs.LogEntry, observations []store.LockObservation, truncated bool, days int, now time.Time, note string, verbose bool) string {
+func buildProgressReport(target *progressTarget, entries []cs.LogEntry, observations []store.LockObservation, truncated bool, days int, now time.Time, note string) string {
 	header := progressHeader(target, now)
 	chronological := progressChronological(entries)
 	infos := make([]progressEventInfo, len(chronological))
@@ -263,11 +262,11 @@ func buildProgressReport(target *progressTarget, entries []cs.LogEntry, observat
 	}
 	if target.running != nil {
 		nowState, ok := ends[progressDayKey(now)]
-		sections = append(sections, progressNowText(target.running, nowState, ok, verbose))
-		sections = append(sections, progressTotalsText(target.running, chronological, verbose))
+		sections = append(sections, progressNowText(target.running, nowState, ok))
+		sections = append(sections, progressTotalsText(target.running, chronological))
 	}
 	if len(dayList) > 0 {
-		sections = append(sections, progressDaysText(dayList, target.running, verbose))
+		sections = append(sections, progressDaysText(dayList, target.running))
 	}
 	if truncated {
 		sections = append(sections, fmt.Sprintf(
@@ -326,7 +325,7 @@ func progressHeader(target *progressTarget, now time.Time) string {
 }
 
 // progressNowText summarizes the live deck.
-func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool, verbose bool) string {
+func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool) string {
 	if lock == nil {
 		return ""
 	}
@@ -336,12 +335,12 @@ func progressNowText(lock *cs.LoadedLock, state progressDeckState, ok bool, verb
 		b.WriteString("I cannot build a deck state from the log yet.")
 		return b.String()
 	}
-	b.WriteString(progressStateText(lock, state, verbose))
+	b.WriteString(progressStateText(lock, state))
 	return b.String()
 }
 
 // progressTotalsText shows counters that span the whole lock.
-func progressTotalsText(lock *cs.LoadedLock, events []cs.LogEntry, verbose bool) string {
+func progressTotalsText(lock *cs.LoadedLock, events []cs.LogEntry) string {
 	if lock == nil {
 		return ""
 	}
@@ -377,17 +376,15 @@ func progressTotalsText(lock *cs.LoadedLock, events []cs.LogEntry, verbose bool)
 		parts = append(parts, fmt.Sprintf("%s %d double up", cardEmojiMarkup(cs.CardDoubleUp), doubles))
 	}
 	text := "**This lock** · " + strings.Join(parts, " · ")
-	if verbose {
-		seen := tallyProgressDay(events, nil)
-		if line := seen.drawLine(); line != "" {
-			text += "\nSeen in the log: " + line
-		}
+	seen := tallyProgressDay(events, nil)
+	if line := seen.drawLine(); line != "" {
+		text += "\nSeen in the log: " + line
 	}
 	return text
 }
 
 // progressStateText renders one deck state without ranges.
-func progressStateText(lock *cs.LoadedLock, state progressDeckState, verbose bool) string {
+func progressStateText(lock *cs.LoadedLock, state progressDeckState) string {
 	if !state.totalExact {
 		return "Deck size unknown."
 	}
@@ -427,10 +424,10 @@ func progressStateText(lock *cs.LoadedLock, state progressDeckState, verbose boo
 	} else {
 		b.WriteString("\nGreens needed: 0.")
 	}
-	if verbose && !state.greensExact && !state.redYellowUnknown {
+	if !state.greensExact && !state.redYellowUnknown {
 		b.WriteString("\nOther cards include greens, further doubles, stuns, freezes, and arctics.")
 	}
-	if verbose && len(state.notes) > 0 {
+	if len(state.notes) > 0 {
 		b.WriteString("\n")
 		b.WriteString(strings.Join(state.notes, " "))
 	}
@@ -492,20 +489,20 @@ func progressDays(events []cs.LogEntry, infos []progressEventInfo, ends, starts 
 }
 
 // progressDaysText renders every selected day.
-func progressDaysText(days []progressDay, lock *cs.LoadedLock, verbose bool) string {
+func progressDaysText(days []progressDay, lock *cs.LoadedLock) string {
 	if len(days) == 0 {
 		return "No draws or deck changes in this window."
 	}
 	var sections []string
 	sections = append(sections, "**By day (UTC)**")
 	for _, day := range days {
-		sections = append(sections, progressDayText(day, lock, verbose))
+		sections = append(sections, progressDayText(day, lock))
 	}
 	return strings.Join(sections, "\n\n")
 }
 
 // progressDayText renders one day's net progress.
-func progressDayText(day progressDay, lock *cs.LoadedLock, verbose bool) string {
+func progressDayText(day progressDay, lock *cs.LoadedLock) string {
 	var b strings.Builder
 	b.WriteString("**")
 	b.WriteString(progressDayLabel(day.key, day.isToday))
@@ -568,13 +565,11 @@ func progressDayText(day progressDay, lock *cs.LoadedLock, verbose bool) string 
 
 	if day.hasState && !day.isToday {
 		b.WriteString("\nLeft: ")
-		b.WriteString(progressStateText(lock, day.state, verbose))
+		b.WriteString(progressStateText(lock, day.state))
 	}
-	if verbose {
-		if text := tally.verboseText(); text != "" {
-			b.WriteString("\n")
-			b.WriteString(text)
-		}
+	if text := tally.detailText(); text != "" {
+		b.WriteString("\n")
+		b.WriteString(text)
 	}
 	return b.String()
 }
@@ -768,8 +763,8 @@ func tallyProgressDay(events []cs.LogEntry, infos []progressEventInfo) progressD
 	return tally
 }
 
-// verboseText renders the nitty-gritty that the concise view hides.
-func (t progressDayTally) verboseText() string {
+// detailText renders per-card counts and the double up math.
+func (t progressDayTally) detailText() string {
 	var lines []string
 	if t.draws > 0 {
 		lines = append(lines, t.drawLine())
@@ -816,7 +811,7 @@ func (t progressDayTally) verboseText() string {
 	return strings.Join(lines, "\n")
 }
 
-// drawLine renders the day's draw counts for verbose mode.
+// drawLine renders the day's draw counts.
 func (t progressDayTally) drawLine() string {
 	var parts []string
 	order := []cs.Card{

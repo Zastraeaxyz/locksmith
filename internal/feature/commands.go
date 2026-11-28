@@ -182,12 +182,6 @@ func lockCommand() *discordgo.ApplicationCommand {
 					},
 					{
 						Type:        discordgo.ApplicationCommandOptionBoolean,
-						Name:        "verbose",
-						Description: "Show per-card counts, yellow details, and double up math",
-						Required:    false,
-					},
-					{
-						Type:        discordgo.ApplicationCommandOptionBoolean,
 						Name:        "public",
 						Description: "Post the reply publicly instead of privately",
 						Required:    false,

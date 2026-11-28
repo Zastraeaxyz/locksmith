@@ -6,7 +6,7 @@ Notable changes to Locksmith, newest first.
 
 ### Added
 
-- `/lock progress` shows a day-by-day UTC report for a card lock: net green progress, net red progress, red/yellow pool changes, and total deck changes. A visible deck is reconstructed exactly from the live composition. A hidden deck uses stored deck counts, and a double up is exact when the counts before and after it were recorded. `days` limits the report, `ref` picks another card lock, and `verbose` adds per-card draws, yellow details, and the double up math.
+- `/lock progress` shows a day-by-day UTC report for a card lock: net green progress, net red progress, red/yellow pool changes, total deck changes, per-card draws, yellow details, and the double up math. A visible deck is reconstructed exactly from the live composition. A hidden deck uses stored deck counts, and a double up is exact when the counts before and after it were recorded. `days` limits the report, and `ref` picks another card lock.
 
 ### Changed
 
